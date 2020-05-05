@@ -42,8 +42,8 @@ if __name__ == '__main__':
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
-    var0['A'][:] = Aoem
-    var0['B'][:] = Boem
+    #var0['A'][:] = Aoem
+    #var0['B'][:] = Boem
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
     var0['x'][:] = y - y[0]

@@ -138,10 +138,11 @@ class NaturalDTModel(InnovationDTModel):
         resid = Pp - K @ C @ Pp - Pc
         return [resid[i] for i in tril_ind(self.nx)]
     
-    def kalman_gain(self, C, K,  Pp, S):
-        S = tril_mat(self.ny, S)        
-        return Pp @ C.T - K @ S @ S.T
-
+    def kalman_gain(self, C, K,  Pp, S, iS):
+        S = tril_mat(self.ny, S)
+        iS = tril_mat(self.ny, iS)
+        return Pp @ C.T @ iS.T - K @ S
+    
     @property
     def generate_assignments(self):
         gen = {'n_tril_x': len(self.variables['Pp_sqrt']),
