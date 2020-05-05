@@ -72,8 +72,7 @@ class InnovationDTModel(symoptim.Model):
     @property
     def generate_assignments(self):
         gen = {'nx': self.nx, 'nu': self.nu, 'ny': self.ny, 
-               'niS': len(self.variables['iS']),
-               'iS_diag': tril_diag(self.ny).tolist(),
+               'n_tril_y': len(self.variables['iS']),
                **getattr(super(), 'generate_assignments', {})}
         return gen
 
@@ -85,26 +84,40 @@ class NaturalDTModel(InnovationDTModel):
         # Define additional decision variables
         v = self.variables
         v['Pp'] = [[f'Pp{i}_{j}' for j in range(nx)] for i in range(nx)]
-        v['Pc'] = [[f'Pp{i}_{j}' for j in range(nx)] for i in range(nx)]
+        v['Pc'] = [[f'Pc{i}_{j}' for j in range(nx)] for i in range(nx)]
         v['Q'] = [[f'Q{i}_{j}' for j in range(nx)] for i in range(nx)]
         v['R'] = [[f'R{i}_{j}' for j in range(ny)] for i in range(ny)]
         v['S'] = [f'S{i}_{j}' for i,j in tril_ind(ny)]
+        v['Q_sqrt'] = [f'Q_sqrt{i}_{j}' for i,j in tril_ind(nx)]
+        v['R_sqrt'] = [f'R_sqrt{i}_{j}' for i,j in tril_ind(ny)]
+        v['Pp_sqrt'] = [f'Pp_sqrt{i}_{j}' for i,j in tril_ind(nx)]
+        v['Pc_sqrt'] = [f'Pc_sqrt{i}_{j}' for i,j in tril_ind(nx)]
         self.decision.update({'Pp', 'Pc', 'Q', 'R', 'S'})
-
+        self.decision.update({'Pp_sqrt', 'Pc_sqrt', 'Q_sqrt', 'R_sqrt', 'S'})
+        
         # Register additional constraints
-        self.add_constraint('Pp_symmetry')
         self.add_constraint('S_inverse')
         self.add_constraint('output_cov')
         self.add_constraint('x_pred_cov')
         self.add_constraint('x_corr_cov')
         self.add_constraint('kalman_gain')
+        self.add_constraint('Pp_psd')
+        self.add_constraint('Pc_psd')
+        self.add_constraint('Q_psd')
+        self.add_constraint('R_psd')
+        
+    def Pp_psd(self, Pp, Pp_sqrt):
+        return psd_constraint(Pp, Pp_sqrt)
     
-    def Pp_symmetry(self, Pp):
-        return symmetry_constraint(Pp)
+    def Pc_psd(self, Pc, Pc_sqrt):
+        return psd_constraint(Pc, Pc_sqrt)
     
-    def Pc_symmetry(self, Pc):
-        return symmetry_constraint(Pc)
+    def Q_psd(self, Q, Q_sqrt):
+        return psd_constraint(Q, Q_sqrt)
     
+    def R_psd(self, R, R_sqrt):
+        return psd_constraint(R, R_sqrt)
+        
     def S_inverse(self, iS, S):
         iS = tril_mat(self.ny, iS)
         S = tril_mat(self.ny, S)
@@ -114,21 +127,30 @@ class NaturalDTModel(InnovationDTModel):
     
     def output_cov(self, C, Pp, R, S):
         S = tril_mat(self.ny, S)
-        return C @ Pp @ C.T + R - S @ S.T
+        resid = C @ Pp @ C.T + R - S @ S.T
+        return [resid[i] for i in tril_ind(self.ny)]
     
     def x_pred_cov(self, A, Pp, Pc, Q):
-        return A @ Pc @ A.T + Q - Pc
+        resid = A @ Pc @ A.T + Q - Pc
+        return [resid[i] for i in tril_ind(self.nx)]
     
     def x_corr_cov(self, C, K, Pp, Pc):
-        return Pp - K @ C @ Pp - Pc
+        resid = Pp - K @ C @ Pp - Pc
+        return [resid[i] for i in tril_ind(self.nx)]
     
     def kalman_gain(self, C, K,  Pp, S):
         S = tril_mat(self.ny, S)        
-        return Pp @ C - K @ S @ S.T
+        return Pp @ C.T - K @ S @ S.T
+
+    @property
+    def generate_assignments(self):
+        gen = {'n_tril_x': len(self.variables['Pp_sqrt']),
+               **getattr(super(), 'generate_assignments', {})}
+        return gen
 
 
 def tril_ind(n):
-    yield from ((i,j) for (i,j) in np.ndindex(n, n) if i<=j)
+    yield from ((i,j) for (i,j) in np.ndindex(n, n) if i>=j)
 
 
 def tril_diag(n):
@@ -145,3 +167,9 @@ def tril_mat(n, elem):
 def symmetry_constraint(M):
     n = len(M)
     return [M[i,j] - M[j,i] for (i,j) in np.ndindex(n, n) if i < j]
+
+def psd_constraint(mat, sqrt_tril_elem):
+    sqrt = tril_mat(len(mat), sqrt_tril_elem)
+    return mat - sqrt @ sqrt.T
+
+
