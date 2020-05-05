@@ -48,22 +48,22 @@ if __name__ == '__main__':
     var0['D'][:] = np.zeros((2,1))
     #var0['x'][:] = y - y[0]
     #var0['ybias'][:] = y[0]
-    var0['iS'][symfem.tril_diag(2)] = 1e3
+    var0['isRp_tril'][symfem.tril_diag(2)] = 1e3
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
     dec_L, dec_U = dec_bounds
     var_L = problem.variables(dec_L)
     var_U = problem.variables(dec_U)    
-    var_U['iS'][symfem.tril_diag(2)] = 1e5
+    var_U['isRp_tril'][symfem.tril_diag(2)] = 1e5
     var_L['C'][:] = np.eye(2)
     var_U['C'][:] = np.eye(2)
     var_L['D'][:] = np.zeros((2,1))
     var_U['D'][:] = np.zeros((2,1))
     #var_L['K'][:] = np.zeros((2,2))
     #var_U['K'][:] = np.zeros((2,2))
-    #var_L['iS'][~symfem.tril_diag(2)] = 0
-    #var_U['iS'][~symfem.tril_diag(2)] = 0
+    #var_L['isRp_tril'][~symfem.tril_diag(2)] = 0
+    #var_U['isRp_tril'][~symfem.tril_diag(2)] = 0
     
     # Define bounds for constraints
     constr_bounds = np.zeros((2, problem.ncons))
@@ -89,6 +89,6 @@ if __name__ == '__main__':
     Dopt = opt['D']
     Kopt = opt['K']
     ybiasopt = opt['ybias']
-    iSopt = symfem.tril_mat(model.ny, opt['iS'])
+    isRpopt = symfem.tril_mat(model.ny, opt['isRp_tril'])
     yopt = model.output(xopt, u, Copt, Dopt, ybiasopt)
 

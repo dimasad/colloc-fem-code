@@ -31,7 +31,7 @@ class InnovationDTModel(symoptim.Model):
         v['C'] = [[f'C{i}_{j}' for j in range(nx)] for i in range(ny)]
         v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]        
         v['K'] = [[f'K{i}_{j}' for j in range(ny)] for i in range(nx)]
-        v['iS'] = [f'iS{i}_{j}' for i,j in tril_ind(ny)]
+        v['isRp_tril'] = [f'isRp{i}_{j}' for i,j in tril_ind(ny)]
         self.decision.update({k for k in v if k != 'self'})
 
         # Define auxiliary variables
@@ -51,15 +51,15 @@ class InnovationDTModel(symoptim.Model):
         """Model dynamics defects."""
         return xn - self.propagate(xp, up, yp, A, B, C, D, K, ybias)
     
-    def L(self, y, x, u, C, D, iS, ybias):
+    def L(self, y, x, u, C, D, isRp_tril, ybias):
         """Measurement log-likelihood."""
-        iS = tril_mat(self.ny, iS)
+        isRp = tril_mat(self.ny, isRp_tril)
         
         ymodel = self.output(x, u, C, D, ybias)
         e = y - ymodel
         
-        log_det_iS = sum(sympy.log(d) for d in iS.diagonal())
-        L = -0.5 * e.T @ iS.T @ iS @ e + log_det_iS
+        log_det_isRp = sum(sympy.log(d) for d in isRp.diagonal())
+        L = -0.5 * e.T @ isRp.T @ isRp @ e + log_det_isRp
         return L
     
     def output(self, x, u, C, D, ybias):
@@ -72,7 +72,7 @@ class InnovationDTModel(symoptim.Model):
     @property
     def generate_assignments(self):
         gen = {'nx': self.nx, 'nu': self.nu, 'ny': self.ny, 
-               'n_tril_y': len(self.variables['iS']),
+               'n_tril_y': len(self.variables['isRp_tril']),
                **getattr(super(), 'generate_assignments', {})}
         return gen
 
@@ -87,16 +87,17 @@ class NaturalDTModel(InnovationDTModel):
         v['Pc'] = [[f'Pc{i}_{j}' for j in range(nx)] for i in range(nx)]
         v['Q'] = [[f'Q{i}_{j}' for j in range(nx)] for i in range(nx)]
         v['R'] = [[f'R{i}_{j}' for j in range(ny)] for i in range(ny)]
-        v['S'] = [f'S{i}_{j}' for i,j in tril_ind(ny)]
-        v['Q_sqrt'] = [f'Q_sqrt{i}_{j}' for i,j in tril_ind(nx)]
-        v['R_sqrt'] = [f'R_sqrt{i}_{j}' for i,j in tril_ind(ny)]
-        v['Pp_sqrt'] = [f'Pp_sqrt{i}_{j}' for i,j in tril_ind(nx)]
-        v['Pc_sqrt'] = [f'Pc_sqrt{i}_{j}' for i,j in tril_ind(nx)]
-        self.decision.update({'Pp', 'Pc', 'Q', 'R', 'S'})
-        self.decision.update({'Pp_sqrt', 'Pc_sqrt', 'Q_sqrt', 'R_sqrt', 'S'})
+        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
+        v['sQ_tril'] = [f'sQ{i}_{j}' for i,j in tril_ind(nx)]
+        v['sR_tril'] = [f'sR{i}_{j}' for i,j in tril_ind(ny)]
+        v['sPp_tril'] = [f'sPp{i}_{j}' for i,j in tril_ind(nx)]
+        v['sPc_tril'] = [f'sPc{i}_{j}' for i,j in tril_ind(nx)]
+        self.decision.update({'Pp', 'Pc', 'Q', 'R'})
+        self.decision.update({'sPp_tril', 'sPc_tril', 'sQ_tril'})
+        self.decision.update({'sRp_tril', 'sR_tril'})
         
         # Register additional constraints
-        self.add_constraint('S_inverse')
+        self.add_constraint('Rp_inverse')
         self.add_constraint('output_cov')
         self.add_constraint('x_pred_cov')
         self.add_constraint('x_corr_cov')
@@ -106,28 +107,28 @@ class NaturalDTModel(InnovationDTModel):
         self.add_constraint('Q_psd')
         self.add_constraint('R_psd')
         
-    def Pp_psd(self, Pp, Pp_sqrt):
-        return psd_constraint(Pp, Pp_sqrt)
+    def Pp_psd(self, Pp, sPp_tril):
+        return psd_constraint(Pp, sPp_tril)
     
-    def Pc_psd(self, Pc, Pc_sqrt):
-        return psd_constraint(Pc, Pc_sqrt)
+    def Pc_psd(self, Pc, sPc_tril):
+        return psd_constraint(Pc, sPc_tril)
     
-    def Q_psd(self, Q, Q_sqrt):
-        return psd_constraint(Q, Q_sqrt)
+    def Q_psd(self, Q, sQ_tril):
+        return psd_constraint(Q, sQ_tril)
     
-    def R_psd(self, R, R_sqrt):
-        return psd_constraint(R, R_sqrt)
+    def R_psd(self, R, sR_tril):
+        return psd_constraint(R, sR_tril)
         
-    def S_inverse(self, iS, S):
-        iS = tril_mat(self.ny, iS)
-        S = tril_mat(self.ny, S)
+    def Rp_inverse(self, isRp_tril, sRp_tril):
+        isRp = tril_mat(self.ny, isRp_tril)
+        sRp = tril_mat(self.ny, sRp_tril)
         I = np.eye(self.ny)
-        resid = S @ iS - I
+        resid = sRp @ isRp - I
         return [resid[i] for i in tril_ind(self.ny)]
     
-    def output_cov(self, C, Pp, R, S):
-        S = tril_mat(self.ny, S)
-        resid = C @ Pp @ C.T + R - S @ S.T
+    def output_cov(self, C, Pp, R, sRp_tril):
+        sRp = tril_mat(self.ny, sRp_tril)
+        resid = C @ Pp @ C.T + R - sRp @ sRp.T
         return [resid[i] for i in tril_ind(self.ny)]
     
     def x_pred_cov(self, A, Pp, Pc, Q):
@@ -138,14 +139,14 @@ class NaturalDTModel(InnovationDTModel):
         resid = Pp - K @ C @ Pp - Pc
         return [resid[i] for i in tril_ind(self.nx)]
     
-    def kalman_gain(self, C, K,  Pp, S, iS):
-        S = tril_mat(self.ny, S)
-        iS = tril_mat(self.ny, iS)
-        return Pp @ C.T @ iS.T - K @ S
+    def kalman_gain(self, C, K,  Pp, sRp_tril, isRp_tril):
+        sRp = tril_mat(self.ny, sRp_tril)
+        isRp = tril_mat(self.ny, isRp_tril)
+        return Pp @ C.T @ isRp.T - K @ sRp
     
     @property
     def generate_assignments(self):
-        gen = {'n_tril_x': len(self.variables['Pp_sqrt']),
+        gen = {'n_tril_x': len(self.variables['sPp_tril']),
                **getattr(super(), 'generate_assignments', {})}
         return gen
 
@@ -168,6 +169,7 @@ def tril_mat(n, elem):
 def symmetry_constraint(M):
     n = len(M)
     return [M[i,j] - M[j,i] for (i,j) in np.ndindex(n, n) if i < j]
+
 
 def psd_constraint(mat, sqrt_tril_elem):
     sqrt = tril_mat(len(mat), sqrt_tril_elem)
