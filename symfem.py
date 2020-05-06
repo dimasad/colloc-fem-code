@@ -151,6 +151,74 @@ class NaturalDTModel(InnovationDTModel):
         return gen
 
 
+class NaturalSqrtDTModel(InnovationDTModel):
+    def __init__(self, nx, nu, ny):
+        super().__init__(nx, nu, ny)
+        
+        # Define additional decision variables
+        v = self.variables
+        v['sQ_tril'] = [f'sQ{i}_{j}' for i,j in tril_ind(nx)]
+        v['sR_tril'] = [f'sR{i}_{j}' for i,j in tril_ind(ny)]
+        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
+        v['sPp_tril'] = [f'sPp{i}_{j}' for i,j in tril_ind(nx)]
+        v['sPc_tril'] = [f'sPc{i}_{j}' for i,j in tril_ind(nx)]
+        po = [[f'pred_orth{i}_{j}' for j in range(nx)] for i in range(2*nx)]
+        co = [[f'corr_orth{i}_{j}' for j in range(nx+ny)] for i in range(nx+ny)]
+        v['pred_orth'] = po
+        v['corr_orth'] = co
+        self.decision.update({'sPp_tril', 'sPc_tril', 'sQ_tril'})
+        self.decision.update({'sRp_tril', 'sR_tril'})
+        self.decision.update({'pred_orth', 'corr_orth'})
+        
+        # Register additional constraints
+        self.add_constraint('pred_orthogonality')
+        self.add_constraint('corr_orthogonality')
+        self.add_constraint('pred_cov')
+        self.add_constraint('corr_cov')
+        self.add_constraint('Rp_inverse')
+    
+    def pred_orthogonality(self, pred_orth):
+        resid = pred_orth.T @ pred_orth - np.eye(self.nx)
+        return [resid[i] for i in tril_ind(self.nx)]
+    
+    def corr_orthogonality(self, corr_orth):
+        resid = corr_orth.T @ corr_orth - np.eye(self.nx + self.ny)
+        return [resid[i] for i in tril_ind(self.nx + self.ny)]
+    
+    def pred_cov(self, A, sPp_tril, sPc_tril, sQ_tril, pred_orth):
+        sPp = tril_mat(self.nx, sPp_tril)
+        sPc = tril_mat(self.nx, sPc_tril)
+        sQ = tril_mat(self.nx, sQ_tril)
+        bmat = np.bmat([[sPc.T @ A.T], [sQ.T]])
+        return pred_orth @ sPp - bmat
+
+    def corr_cov(self, C, sR_tril, sRp_tril, sPp_tril, sPc_tril, K, corr_orth):
+        sPp = tril_mat(self.nx, sPp_tril)
+        sPc = tril_mat(self.nx, sPc_tril)
+        sRp = tril_mat(self.ny, sRp_tril)
+        sR = tril_mat(self.ny, sR_tril)
+        
+        zeros = np.zeros((self.nx, self.ny))
+        M1 = np.bmat([[sRp.T, sRp @ K.T], 
+                      [zeros, sPc.T]])
+        M2 = np.bmat([[sR.T, zeros.T], 
+                      [sPp.T @ C.T, sPp.T]])
+        return corr_orth @ M1 - M2
+    
+    def Rp_inverse(self, isRp_tril, sRp_tril):
+        isRp = tril_mat(self.ny, isRp_tril)
+        sRp = tril_mat(self.ny, sRp_tril)
+        I = np.eye(self.ny)
+        resid = sRp @ isRp - I
+        return [resid[i] for i in tril_ind(self.ny)]
+    
+    @property
+    def generate_assignments(self):
+        gen = {'n_tril_x': len(self.variables['sPp_tril']),
+               **getattr(super(), 'generate_assignments', {})}
+        return gen
+
+
 def tril_ind(n):
     yield from ((i,j) for (i,j) in np.ndindex(n, n) if i>=j)
 

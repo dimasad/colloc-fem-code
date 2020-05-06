@@ -88,3 +88,28 @@ class NaturalDTProblem(InnovationDTProblem):
         self.add_constraint(model.Pc_psd, (model.nx, model.nx))
         self.add_constraint(model.Q_psd, (model.nx, model.nx))
         self.add_constraint(model.R_psd, (model.ny, model.ny))
+
+
+class NaturalSqrtDTProblem(InnovationDTProblem):
+
+    def __init__(self, model, y, u):
+        super().__init__(model, y, u)
+        
+        nxy = model.nx + model.ny
+        n_tril_xy = nxy * (nxy + 1) // 2
+        
+        # Register decision variables
+        self.add_decision('sRp_tril', model.n_tril_y)
+        self.add_decision('sPp_tril', model.n_tril_x)
+        self.add_decision('sPc_tril', model.n_tril_x)
+        self.add_decision('sQ_tril', model.n_tril_x)
+        self.add_decision('sR_tril', model.n_tril_y)
+        self.add_decision('pred_orth', (2*model.nx, model.nx))
+        self.add_decision('corr_orth', (nxy, nxy))
+        
+        # Register constraint functions
+        self.add_constraint(model.pred_orthogonality, model.n_tril_x)
+        self.add_constraint(model.corr_orthogonality, n_tril_xy)
+        self.add_constraint(model.pred_cov, (2*model.nx, model.nx))
+        self.add_constraint(model.corr_cov, (nxy, nxy))
+        self.add_constraint(model.Rp_inverse, model.n_tril_y)

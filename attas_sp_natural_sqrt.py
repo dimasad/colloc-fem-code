@@ -19,6 +19,7 @@ for m in (fem, symfem):
 
 
 def load_data():
+    # Retrieve data
     d2r = np.pi / 180
     module_dir = os.path.dirname(__file__)
     data_file_path = os.path.join(module_dir, 'data', 'fAttasElv1.mat')
@@ -26,15 +27,20 @@ def load_data():
     t = data[:, 0] - data[0, 0]
     u = data[:, [21]] * d2r
     y = data[:, [7, 12]] * d2r
+
+    # Shift and rescale
+    y = (y - [0.003, 0.04]) * [10, 20]
+    u = (u - 0.04) * 25
+    
     return t, u, y
 
 
 if __name__ == '__main__':
     # Load experiment data
     t, u, y = load_data()
-    symmodel = symfem.NaturalDTModel(nx=2, nu=1, ny=2)
+    symmodel = symfem.NaturalSqrtDTModel(nx=2, nu=1, ny=2)
     model = symmodel.compile_class()()
-    problem = fem.NaturalDTProblem(model, y, u)
+    problem = fem.NaturalSqrtDTProblem(model, y, u)
     
     Aoem = np.array([[0.92092623, -0.18707263], [0.04193602, 0.97679607]])
     Boem = np.array([[-0.27215983], [0.01984017]])
@@ -42,18 +48,21 @@ if __name__ == '__main__':
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
+    var0['A'][:] = np.eye(2)
     #var0['A'][:] = Aoem
     #var0['B'][:] = Boem
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['x'][:] = y - y[0]
-    var0['ybias'][:] = y[0]
-    var0['isRp_tril'][symfem.tril_diag(2)] = 1e3
-    var0['sRp_tril'][symfem.tril_diag(2)] = 1e-3
-    var0['sQ_tril'][symfem.tril_diag(2)] = 1e-3
-    var0['sR_tril'][symfem.tril_diag(2)] = 1e-3
-    var0['sPp_tril'][symfem.tril_diag(2)] = 1e-3
-    var0['sPc_tril'][symfem.tril_diag(2)] = 1e-3
+    var0['K'][:] = np.eye(2)
+    var0['x'][:] = y
+    var0['isRp_tril'][symfem.tril_diag(2)] = 1
+    var0['sRp_tril'][symfem.tril_diag(2)] = 1
+    var0['sQ_tril'][symfem.tril_diag(2)] = 1
+    var0['sR_tril'][symfem.tril_diag(2)] = 1
+    var0['sPp_tril'][symfem.tril_diag(2)] = 1
+    var0['sPc_tril'][symfem.tril_diag(2)] = 1
+    var0['pred_orth'][:] = np.eye(4, 2)
+    var0['corr_orth'][:] = np.eye(4)
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
@@ -64,7 +73,7 @@ if __name__ == '__main__':
     var_U['C'][:] = np.eye(2)
     var_L['D'][:] = np.zeros((2,1))
     var_U['D'][:] = np.zeros((2,1))
-    #var_L['isRp_tril'][symfem.tril_diag(2)] = 1e-7
+    var_L['isRp_tril'][symfem.tril_diag(2)] = 0
     var_L['sRp_tril'][symfem.tril_diag(2)] = 1e-7
     var_L['sPp_tril'][symfem.tril_diag(2)] = 0
     var_L['sPc_tril'][symfem.tril_diag(2)] = 0
@@ -76,13 +85,14 @@ if __name__ == '__main__':
     constr_L, constr_U = constr_bounds
     
     # Define problem scaling
-    dec_scale = np.ones(problem.ndec)
-    constr_scale = np.ones(problem.ncons)
     obj_scale = -1.0
-
+    constr_scale = np.ones(problem.ncons)
+    dec_scale = np.ones(problem.ndec)
+    var_scale = problem.variables(dec_scale)
+    
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
-        nlp.add_str_option('linear_solver', 'ma27')
-        nlp.add_num_option('tol', 1e-6)
+        nlp.add_str_option('linear_solver', 'ma57')
+        nlp.add_num_option('tol', 1e-10)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
         decopt, info = nlp.solve(dec0)
@@ -93,12 +103,10 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    Pp = opt['Pp']
-    Pc = opt['Pc']
-    Q = opt['Q']
-    R = opt['R']
     K = opt['K']
     ybias = opt['ybias']
+    pred_orth = opt['pred_orth']
+    corr_orth = opt['corr_orth']
     sRp = symfem.tril_mat(model.ny, opt['sRp_tril'])
     isRp = symfem.tril_mat(model.ny, opt['isRp_tril'])
     sPp = symfem.tril_mat(model.nx, opt['sPp_tril'])
@@ -107,3 +115,10 @@ if __name__ == '__main__':
     sR = symfem.tril_mat(model.nx, opt['sR_tril'])
     yopt = model.output(xopt, u, C, D, ybias)
     e = y - yopt
+
+    Pc = sPc @ sPc.T
+    Pp = sPp @ sPp.T
+    Rp = sRp @ sRp.T
+    Q = sQ @ sQ.T
+    R = sR @ sR.T
+
