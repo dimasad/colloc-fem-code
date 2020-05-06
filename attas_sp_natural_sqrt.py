@@ -78,7 +78,9 @@ if __name__ == '__main__':
     var_L['sPp_tril'][symfem.tril_diag(2)] = 0
     var_L['sPc_tril'][symfem.tril_diag(2)] = 0
     var_L['sQ_tril'][symfem.tril_diag(2)] = 0
-    var_L['sR_tril'][symfem.tril_diag(2)] = 0
+    var_L['sR_tril'][symfem.tril_diag(2)] = 1e-4
+    #var_L['sR_tril'][~symfem.tril_diag(2)] = 0
+    #var_U['sR_tril'][~symfem.tril_diag(2)] = 0
     
     # Define bounds for constraints
     constr_bounds = np.zeros((2, problem.ncons))
@@ -87,8 +89,18 @@ if __name__ == '__main__':
     # Define problem scaling
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
+    var_constr_scale = problem.unpack_constraints(constr_scale)
+    var_constr_scale['pred_cov'][:] = 500
+    var_constr_scale['corr_cov'][:] = 500
+    
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
+    var_scale['isRp_tril'][:] = 1e-2
+    var_scale['sRp_tril'][:] = 1e2
+    var_scale['sPp_tril'][:] = 150
+    var_scale['sPc_tril'][:] = 5e3
+    var_scale['sQ_tril'][:] = 200
+    var_scale['sR_tril'][:] = 400
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')

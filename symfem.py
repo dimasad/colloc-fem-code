@@ -178,11 +178,11 @@ class NaturalSqrtDTModel(InnovationDTModel):
         self.add_constraint('Rp_inverse')
     
     def pred_orthogonality(self, pred_orth):
-        resid = pred_orth.T @ pred_orth - np.eye(self.nx)
+        resid = 0.5 * (pred_orth.T @ pred_orth - np.eye(self.nx))
         return [resid[i] for i in tril_ind(self.nx)]
     
     def corr_orthogonality(self, corr_orth):
-        resid = corr_orth.T @ corr_orth - np.eye(self.nx + self.ny)
+        resid = 0.5 * (corr_orth.T @ corr_orth - np.eye(self.nx + self.ny))
         return [resid[i] for i in tril_ind(self.nx + self.ny)]
     
     def pred_cov(self, A, sPp_tril, sPc_tril, sQ_tril, pred_orth):
