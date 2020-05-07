@@ -113,3 +113,24 @@ class NaturalSqrtDTProblem(InnovationDTProblem):
         self.add_constraint(model.pred_cov, (2*model.nx, model.nx))
         self.add_constraint(model.corr_cov, (nxy, nxy))
         self.add_constraint(model.Rp_inverse, model.n_tril_y)
+
+
+class NaturalSqrtZOHProblem(NaturalSqrtDTProblem):
+    def __init__(self, model, y, u):
+        super().__init__(model, y, u)
+        
+        nx = model.nx
+        nu = model.nu
+        
+        # Register decision variables
+        self.add_decision('Ac', (nx, nx))
+        self.add_decision('Bc', (nx, nu))
+        self.add_decision('Qc', (nx, nx))
+
+        # Register constraint functions
+        self.add_constraint(model.discretize_AB, (nx, nx + nu))
+        self.add_constraint(model.discretize_Q, (nx, nx))
+    
+    def variables(self, dvec):
+        """Get all variables needed to evaluate problem functions."""
+        return {'dt': self.model.dt, **super().variables(dvec)}

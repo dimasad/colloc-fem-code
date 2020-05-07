@@ -3,6 +3,7 @@
 
 import numpy as np
 
+import scipy.special
 import sympy
 from ceacoest.modelling import symoptim
 
@@ -219,6 +220,39 @@ class NaturalSqrtDTModel(InnovationDTModel):
         return gen
 
 
+class NaturalSqrtZOHModel(NaturalSqrtDTModel):
+
+    expm_order = 3
+
+    def __init__(self, nx, nu, ny):
+        super().__init__(nx, nu, ny)
+        
+        # Define additional decision variables
+        v = self.variables
+        v['dt'] = 'dt'
+        v['Ac'] = [[f'Ac{i}_{j}' for j in range(nx)] for i in range(nx)]
+        v['Bc'] = [[f'Bc{i}_{j}' for j in range(nu)] for i in range(nx)]
+        v['Qc'] = [[f'Qc{i}_{j}' for j in range(nx)] for i in range(nx)]
+        self.decision.update({'Ac', 'Bc', 'Qc'})
+        
+        # Register additional constraints        
+        self.add_constraint('discretize_AB')
+        self.add_constraint('discretize_Q')
+    
+    def discretize_AB(self, A, B, Ac, Bc, dt):
+        z = np.zeros((self.nu, self.nx + self.nu))
+        F = np.block([[Ac, Bc], [z]]) * dt
+        eF = expm_taylor(F, self.expm_order)
+        return eF[:self.nx] - np.c_[A, B]
+
+    def discretize_Q(self, A, Ac, sQ_tril, Qc, dt):
+        sQ = tril_mat(self.nx, sQ_tril)
+        z = np.zeros((self.nx, self.nx))
+        F = np.block([[-Ac, Qc], [z, Ac.T]]) * dt
+        eF = expm_taylor(F, self.expm_order)
+        return A @ eF[:self.nx, self.nx:] - sQ @ sQ.T
+
+
 def tril_ind(n):
     yield from ((i,j) for (i,j) in np.ndindex(n, n) if i>=j)
 
@@ -244,3 +278,15 @@ def psd_constraint(mat, sqrt_tril_elem):
     return mat - sqrt @ sqrt.T
 
 
+def expm_taylor(a, order):
+    """Taylor approximation for matrix exponential."""
+    a = np.asarray(a)
+    n = len(a)
+    assert a.shape == (n, n)
+    
+    term = np.eye(n)
+    expm = term
+    for i in range(1, order + 1):
+        term = 1 / i * term @ a
+        expm = expm + term
+    return expm
