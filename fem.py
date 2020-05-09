@@ -104,6 +104,7 @@ class NaturalSqrtDTProblem(InnovationDTProblem):
         self.add_decision('sPc_tril', model.n_tril_x)
         self.add_decision('sQ_tril', model.n_tril_x)
         self.add_decision('sR_tril', model.n_tril_y)
+        self.add_decision('KK', (model.nx, model.ny))
         self.add_decision('pred_orth', (2*model.nx, model.nx))
         self.add_decision('corr_orth', (nxy, nxy))
         
@@ -113,6 +114,7 @@ class NaturalSqrtDTProblem(InnovationDTProblem):
         self.add_constraint(model.pred_cov, (2*model.nx, model.nx))
         self.add_constraint(model.corr_cov, (nxy, nxy))
         self.add_constraint(model.Rp_inverse, model.n_tril_y)
+        self.add_constraint(model.kalman_gain, (model.nx, model.ny))
 
 
 class NaturalSqrtZOHProblem(NaturalSqrtDTProblem):

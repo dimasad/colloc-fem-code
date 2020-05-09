@@ -54,6 +54,7 @@ if __name__ == '__main__':
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
     var0['K'][:] = np.eye(2)
+    var0['KK'][:] = np.eye(2)
     var0['x'][:] = y
     var0['isRp_tril'][symfem.tril_diag(2)] = 1
     var0['sRp_tril'][symfem.tril_diag(2)] = 1
@@ -116,6 +117,7 @@ if __name__ == '__main__':
     C = opt['C']
     D = opt['D']
     K = opt['K']
+    KK = opt['KK']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']
     corr_orth = opt['corr_orth']

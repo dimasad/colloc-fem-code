@@ -158,6 +158,7 @@ class NaturalSqrtDTModel(InnovationDTModel):
         
         # Define additional decision variables
         v = self.variables
+        v['KK'] = [[f'KK{i}_{j}' for j in range(ny)] for i in range(nx)]
         v['sQ_tril'] = [f'sQ{i}_{j}' for i,j in tril_ind(nx)]
         v['sR_tril'] = [f'sR{i}_{j}' for i,j in tril_ind(ny)]
         v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
@@ -168,7 +169,7 @@ class NaturalSqrtDTModel(InnovationDTModel):
         v['pred_orth'] = po
         v['corr_orth'] = co
         self.decision.update({'sPp_tril', 'sPc_tril', 'sQ_tril'})
-        self.decision.update({'sRp_tril', 'sR_tril'})
+        self.decision.update({'sRp_tril', 'sR_tril', 'KK'})
         self.decision.update({'pred_orth', 'corr_orth'})
         
         # Register additional constraints
@@ -177,6 +178,7 @@ class NaturalSqrtDTModel(InnovationDTModel):
         self.add_constraint('pred_cov')
         self.add_constraint('corr_cov')
         self.add_constraint('Rp_inverse')
+        self.add_constraint('kalman_gain')
     
     def pred_orthogonality(self, pred_orth):
         resid = 0.5 * (pred_orth.T @ pred_orth - np.eye(self.nx))
@@ -190,21 +192,27 @@ class NaturalSqrtDTModel(InnovationDTModel):
         sPp = tril_mat(self.nx, sPp_tril)
         sPc = tril_mat(self.nx, sPc_tril)
         sQ = tril_mat(self.nx, sQ_tril)
-        bmat = np.bmat([[sPc.T @ A.T], [sQ.T]])
-        return pred_orth @ sPp - bmat
+        bmat = np.block([[sPc.T @ A.T], [sQ.T]])
+        return pred_orth @ sPp.T - bmat
 
-    def corr_cov(self, C, sR_tril, sRp_tril, sPp_tril, sPc_tril, K, corr_orth):
+    def corr_cov(self, C, sR_tril, sRp_tril, sPp_tril, sPc_tril, KK, corr_orth):
         sPp = tril_mat(self.nx, sPp_tril)
         sPc = tril_mat(self.nx, sPc_tril)
         sRp = tril_mat(self.ny, sRp_tril)
         sR = tril_mat(self.ny, sR_tril)
         
         zeros = np.zeros((self.nx, self.ny))
-        M1 = np.bmat([[sRp.T, sRp @ K.T], 
-                      [zeros, sPc.T]])
-        M2 = np.bmat([[sR.T, zeros.T], 
-                      [sPp.T @ C.T, sPp.T]])
+        M1 = np.block([[sRp.T, sRp.T @ KK.T], 
+                       [zeros, sPc.T]])
+        M2 = np.block([[sR.T, zeros.T], 
+                       [sPp.T @ C.T, sPp.T]])
         return corr_orth @ M1 - M2
+    
+    def kalman_gain(self, K, A, sPp_tril, C, isRp_tril):
+        isRp = tril_mat(self.ny, isRp_tril)
+        sPp = tril_mat(self.nx, sPp_tril)
+        K_kalm = sPp @ sPp.T @ C.T @ isRp.T @ isRp
+        return K - A @ K_kalm
     
     def Rp_inverse(self, isRp_tril, sRp_tril):
         isRp = tril_mat(self.ny, isRp_tril)
