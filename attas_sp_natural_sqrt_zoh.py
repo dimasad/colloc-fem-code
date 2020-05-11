@@ -47,21 +47,20 @@ if __name__ == '__main__':
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
     var0['A'][:] = np.eye(2)
-    #var0['A'][:] = Aoem
-    #var0['B'][:] = Boem
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['K'][:] = np.eye(2)
+    var0['Kp'][:] = np.eye(2)
+    var0['KsRp'][:] = np.eye(2) * 1e-2
     var0['x'][:] = y
-    var0['isRp_tril'][symfem.tril_diag(2)] = 1
-    var0['sRp_tril'][symfem.tril_diag(2)] = 1
-    var0['sQ_tril'][symfem.tril_diag(2)] = 1
-    var0['sR_tril'][symfem.tril_diag(2)] = 1
-    var0['sPp_tril'][symfem.tril_diag(2)] = 1
-    var0['sPc_tril'][symfem.tril_diag(2)] = 1
+    var0['isRp_tril'][symfem.tril_diag(2)] = 100
+    var0['sRp_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sQ_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sR_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sPp_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sPc_tril'][symfem.tril_diag(2)] = 1e-2
     var0['pred_orth'][:] = np.eye(4, 2)
     var0['corr_orth'][:] = np.eye(4)
-    var0['Qc'][:] = np.eye(2)
+    var0['Qc'][:] = np.eye(2) * 1e-3
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
@@ -78,8 +77,8 @@ if __name__ == '__main__':
     var_L['sPc_tril'][symfem.tril_diag(2)] = 0
     var_L['sQ_tril'][symfem.tril_diag(2)] = 0
     var_L['sR_tril'][symfem.tril_diag(2)] = 1e-4
-    #var_L['sR_tril'][~symfem.tril_diag(2)] = 0
-    #var_U['sR_tril'][~symfem.tril_diag(2)] = 0
+    var_L['sR_tril'][~symfem.tril_diag(2)] = 0
+    var_U['sR_tril'][~symfem.tril_diag(2)] = 0
     var_L['Qc'][[0,1], [0,1]] = 0
     
     # Define bounds for constraints
@@ -90,19 +89,21 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['pred_cov'][:] = 500
-    var_constr_scale['corr_cov'][:] = 500
-    var_constr_scale['discretize_Q'][:] = 1e3
+    var_constr_scale['pred_cov'][:] = 100
+    var_constr_scale['corr_cov'][:] = 100
+    var_constr_scale['kalman_gain'][:] = 100
+    var_constr_scale['discretize_Q'][:] = 1e4
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
     var_scale['sRp_tril'][:] = 1e2
-    var_scale['sPp_tril'][:] = 150
-    var_scale['sPc_tril'][:] = 5e3
-    var_scale['sQ_tril'][:] = 200
-    var_scale['sR_tril'][:] = 400
-    var_scale['Qc'][:] = 1e2
+    var_scale['sPp_tril'][:] = 1e2
+    var_scale['sPc_tril'][:] = 1e2
+    var_scale['sQ_tril'][:] = 1e2
+    var_scale['sR_tril'][:] = 1e2
+    var_scale['KsRp'][:] = 1e2
+    var_scale['Qc'][:] = 1e3
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
@@ -120,7 +121,8 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    K = opt['K']
+    Kp = opt['Kp']
+    KsRp = opt['KsRp']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']
     corr_orth = opt['corr_orth']

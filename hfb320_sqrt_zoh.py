@@ -30,7 +30,8 @@ def load_data():
     u = data[:, [1,3]]
     
     # Shift and rescale
-    y = (y - [106, 0.11, 0.1, 0, 0, 0.95, -9.5]) * [0.15, 70, 15, 30, 10, 5, 0.8]
+    yscale = np.r_[0.15, 70, 15, 30, 10, 5, 0.8]
+    y = (y - [106, 0.11, 0.1, 0, 0, 0.95, -9.5]) * yscale
     u = (u - [-0.007, 11600]) * [100, 0.01]
     
     return t, u, y[:, :]
@@ -63,9 +64,9 @@ if __name__ == '__main__':
     
     # Load experiment data
     t, u, y = load_data()
-    #symmodel = symfem.NaturalSqrtZOHModel(nx=nx, nu=nu, ny=ny)
-    #model = symmodel.compile_class()
-    model = get_model()
+    symmodel = symfem.NaturalSqrtZOHModel(nx=nx, nu=nu, ny=ny)
+    model = symmodel.compile_class()()
+    #model = get_model(nx, nu, ny)
     model.dt = t[1] - t[0]
     problem = fem.NaturalSqrtZOHProblem(model, y, u)
     
@@ -75,17 +76,18 @@ if __name__ == '__main__':
     var0['A'][:] = np.eye(nx)
     var0['C'][:] = np.eye(ny, nx)
     var0['D'][:] = np.zeros((ny, nu))
-    var0['K'][:] = np.eye(nx, ny)
+    var0['Kp'][:] = np.eye(nx, ny)
+    var0['KsRp'][:] = np.eye(nx, ny) * 1e-2
     var0['x'][:] = y[:, :nx]
-    var0['isRp_tril'][symfem.tril_diag(ny)] = 1
-    var0['sRp_tril'][symfem.tril_diag(ny)] = 1
-    var0['sQ_tril'][symfem.tril_diag(nx)] = 1
-    var0['sR_tril'][symfem.tril_diag(ny)] = 1
-    var0['sPp_tril'][symfem.tril_diag(nx)] = 1
-    var0['sPc_tril'][symfem.tril_diag(nx)] = 1
+    var0['isRp_tril'][symfem.tril_diag(ny)] = 1e2
+    var0['sRp_tril'][symfem.tril_diag(ny)] = 1e-2
+    var0['sQ_tril'][symfem.tril_diag(nx)] = 1e-2
+    var0['sR_tril'][symfem.tril_diag(ny)] = 1e-2
+    var0['sPp_tril'][symfem.tril_diag(nx)] = 1e-2
+    var0['sPc_tril'][symfem.tril_diag(nx)] = 1e-2
     var0['pred_orth'][:] = np.eye(2*nx, nx)
     var0['corr_orth'][:] = np.eye(nx + ny, nx + ny)
-    var0['Qc'][:] = np.eye(nx)
+    var0['Qc'][:] = np.eye(nx) * 1e-2
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
@@ -105,8 +107,8 @@ if __name__ == '__main__':
     var_L['sQ_tril'][symfem.tril_diag(nx)] = 0
     var_L['sR_tril'][symfem.tril_diag(ny)] = 1e-4
     var_L['sR_tril'][0] = 0.02
-    #var_L['sR_tril'][~symfem.tril_diag(ny)] = 0
-    #var_U['sR_tril'][~symfem.tril_diag(ny)] = 0
+    var_L['sR_tril'][~symfem.tril_diag(ny)] = 0
+    var_U['sR_tril'][~symfem.tril_diag(ny)] = 0
     var_L['Qc'][np.arange(nx), np.arange(nx)] = 0
     
     # Define bounds for constraints
@@ -119,16 +121,18 @@ if __name__ == '__main__':
     var_constr_scale = problem.unpack_constraints(constr_scale)
     var_constr_scale['pred_cov'][:] = 100
     var_constr_scale['corr_cov'][:] = 100
-    var_constr_scale['discretize_Q'][:] = 100
+    var_constr_scale['kalman_gain'][:] = 100
+    var_constr_scale['discretize_Q'][:] = 1e4
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
     var_scale['sRp_tril'][:] = 1e2
-    var_scale['sPp_tril'][:] = 100
-    var_scale['sPc_tril'][:] = 500
-    var_scale['sQ_tril'][:] = 100
-    var_scale['sR_tril'][:] = 100
+    var_scale['sPp_tril'][:] = 1e2
+    var_scale['sPc_tril'][:] = 1e2
+    var_scale['sQ_tril'][:] = 1e2
+    var_scale['sR_tril'][:] = 1e2
+    var_scale['KsRp'][:] = 1e2
     var_scale['Qc'][:] = 1e2
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
@@ -147,7 +151,8 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    K = opt['K']
+    Kp = opt['Kp']
+    KsRp = opt['KsRp']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']
     corr_orth = opt['corr_orth']

@@ -42,21 +42,16 @@ if __name__ == '__main__':
     model = symmodel.compile_class()()
     problem = fem.NaturalSqrtDTProblem(model, y, u)
     
-    Aoem = np.array([[0.92092623, -0.18707263], [0.04193602, 0.97679607]])
-    Boem = np.array([[-0.27215983], [0.01984017]])
-    
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
     var0['A'][:] = np.eye(2)
-    #var0['A'][:] = Aoem
-    #var0['B'][:] = Boem
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
     var0['Kp'][:] = np.eye(2)
-    var0['KsRp'][:] = np.eye(2)
+    var0['KsRp'][:] = np.eye(2) * 1e-2
     var0['x'][:] = y
-    var0['isRp_tril'][symfem.tril_diag(2)] = 10
+    var0['isRp_tril'][symfem.tril_diag(2)] = 100
     var0['sRp_tril'][symfem.tril_diag(2)] = 1e-2
     var0['sQ_tril'][symfem.tril_diag(2)] = 1e-2
     var0['sR_tril'][symfem.tril_diag(2)] = 1e-2
@@ -91,19 +86,19 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['pred_cov'][:] = 500
-    var_constr_scale['corr_cov'][:] = 500
-    var_constr_scale['kalman_gain'][:] = 150
+    var_constr_scale['pred_cov'][:] = 100
+    var_constr_scale['corr_cov'][:] = 100
+    var_constr_scale['kalman_gain'][:] = 100
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
     var_scale['sRp_tril'][:] = 1e2
-    var_scale['sPp_tril'][:] = 150
-    var_scale['sPc_tril'][:] = 5e3
-    var_scale['sQ_tril'][:] = 200
-    var_scale['sR_tril'][:] = 400
-    var_scale['KsRp'][:] = 150
+    var_scale['sPp_tril'][:] = 1e2
+    var_scale['sPc_tril'][:] = 1e2
+    var_scale['sQ_tril'][:] = 1e2
+    var_scale['sR_tril'][:] = 1e2
+    var_scale['KsRp'][:] = 1e2
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
