@@ -60,8 +60,8 @@ if __name__ == '__main__':
     var_U['C'][:] = np.eye(2)
     var_L['D'][:] = np.zeros((2,1))
     var_U['D'][:] = np.zeros((2,1))
-    #var_L['K'][:] = np.zeros((2,2))
-    #var_U['K'][:] = np.zeros((2,2))
+    #var_L['Kp'][:] = np.zeros((2,2))
+    #var_U['Kp'][:] = np.zeros((2,2))
     #var_L['isRp_tril'][~symfem.tril_diag(2)] = 0
     #var_U['isRp_tril'][~symfem.tril_diag(2)] = 0
     
@@ -87,7 +87,7 @@ if __name__ == '__main__':
     Bopt = opt['B']
     Copt = opt['C']
     Dopt = opt['D']
-    Kopt = opt['K']
+    Kpopt = opt['Kp']
     ybiasopt = opt['ybias']
     isRpopt = symfem.tril_mat(model.ny, opt['isRp_tril'])
     yopt = model.output(xopt, u, Copt, Dopt, ybiasopt)

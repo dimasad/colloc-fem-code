@@ -53,15 +53,15 @@ if __name__ == '__main__':
     #var0['B'][:] = Boem
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['K'][:] = np.eye(2)
-    var0['KK'][:] = np.eye(2)
+    var0['Kp'][:] = np.eye(2)
+    var0['KsRp'][:] = np.eye(2)
     var0['x'][:] = y
-    var0['isRp_tril'][symfem.tril_diag(2)] = 1
-    var0['sRp_tril'][symfem.tril_diag(2)] = 1
-    var0['sQ_tril'][symfem.tril_diag(2)] = 1
-    var0['sR_tril'][symfem.tril_diag(2)] = 1
-    var0['sPp_tril'][symfem.tril_diag(2)] = 1
-    var0['sPc_tril'][symfem.tril_diag(2)] = 1
+    var0['isRp_tril'][symfem.tril_diag(2)] = 10
+    var0['sRp_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sQ_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sR_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sPp_tril'][symfem.tril_diag(2)] = 1e-2
+    var0['sPc_tril'][symfem.tril_diag(2)] = 1e-2
     var0['pred_orth'][:] = np.eye(4, 2)
     var0['corr_orth'][:] = np.eye(4)
     
@@ -80,8 +80,8 @@ if __name__ == '__main__':
     var_L['sPc_tril'][symfem.tril_diag(2)] = 0
     var_L['sQ_tril'][symfem.tril_diag(2)] = 0
     var_L['sR_tril'][symfem.tril_diag(2)] = 1e-4
-    #var_L['sR_tril'][~symfem.tril_diag(2)] = 0
-    #var_U['sR_tril'][~symfem.tril_diag(2)] = 0
+    var_L['sR_tril'][~symfem.tril_diag(2)] = 0
+    var_U['sR_tril'][~symfem.tril_diag(2)] = 0
     
     # Define bounds for constraints
     constr_bounds = np.zeros((2, problem.ncons))
@@ -93,6 +93,7 @@ if __name__ == '__main__':
     var_constr_scale = problem.unpack_constraints(constr_scale)
     var_constr_scale['pred_cov'][:] = 500
     var_constr_scale['corr_cov'][:] = 500
+    var_constr_scale['kalman_gain'][:] = 150
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
@@ -102,6 +103,7 @@ if __name__ == '__main__':
     var_scale['sPc_tril'][:] = 5e3
     var_scale['sQ_tril'][:] = 200
     var_scale['sR_tril'][:] = 400
+    var_scale['KsRp'][:] = 150
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
@@ -116,8 +118,8 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    K = opt['K']
-    KK = opt['KK']
+    Kp = opt['Kp']
+    KsRp = opt['KsRp']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']
     corr_orth = opt['corr_orth']

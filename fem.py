@@ -42,7 +42,7 @@ class InnovationDTProblem(optim.Problem):
         self.add_decision('B', (model.nx, model.nu))
         self.add_decision('C', (model.ny, model.nx))
         self.add_decision('D', (model.ny, model.nu))
-        self.add_decision('K', (model.nx, model.ny))
+        self.add_decision('Kp', (model.nx, model.ny))
         x = self.add_decision('x', (N, model.nx))
         
         # Define and register dependent variables
@@ -104,7 +104,7 @@ class NaturalSqrtDTProblem(InnovationDTProblem):
         self.add_decision('sPc_tril', model.n_tril_x)
         self.add_decision('sQ_tril', model.n_tril_x)
         self.add_decision('sR_tril', model.n_tril_y)
-        self.add_decision('KK', (model.nx, model.ny))
+        self.add_decision('KsRp', (model.nx, model.ny))
         self.add_decision('pred_orth', (2*model.nx, model.nx))
         self.add_decision('corr_orth', (nxy, nxy))
         
