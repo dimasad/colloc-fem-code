@@ -90,6 +90,21 @@ class NaturalDTProblem(InnovationDTProblem):
         self.add_constraint(model.R_psd, (model.ny, model.ny))
 
 
+class InnovationBalDTProblem(InnovationDTProblem):
+    def __init__(self, model, y, u):
+        super().__init__(model, y, u)
+        
+        nx = model.nx
+        n_tril_x = nx * (nx + 1) // 2
+
+        # Register decision variables
+        self.add_decision('W_diag', model.nx)
+        
+        # Register constraint functions
+        self.add_constraint(model.ctrl_gram, n_tril_x)
+        self.add_constraint(model.obs_gram, n_tril_x)
+
+
 class NaturalSqrtDTProblem(InnovationDTProblem):
 
     def __init__(self, model, y, u):

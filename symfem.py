@@ -152,6 +152,30 @@ class NaturalDTModel(InnovationDTModel):
         return gen
 
 
+class InnovationBalDTModel(InnovationDTModel):
+    def __init__(self, nx, nu, ny):
+        super().__init__(nx, nu, ny)
+
+        # Define additional decision variables
+        v = self.variables
+        v['W_diag'] = [f'W{i}' for i in range(nx)]
+        self.decision.update({'W_diag'})
+
+        # Register additional constraints
+        self.add_constraint('ctrl_gram')
+        self.add_constraint('obs_gram')
+
+    def ctrl_gram(self, W_diag, A, B):
+        W = np.diag(W_diag)
+        resid = A @ W @ A.T + B @ B.T - W
+        return [resid[i] for i in tril_ind(self.nx)]
+    
+    def obs_gram(self, W_diag, A, C):
+        W = np.diag(W_diag)
+        resid = A.T @ W @ A + C.T @ C - W
+        return [resid[i] for i in tril_ind(self.nx)]
+
+
 class NaturalSqrtDTModel(InnovationDTModel):
     def __init__(self, nx, nu, ny):
         super().__init__(nx, nu, ny)
