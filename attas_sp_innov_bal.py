@@ -33,10 +33,11 @@ def load_data():
     u = (u - 0.04) * 25
     
     # Add artificial noise
+    np.random.seed(0)
     N = len(y)
     y_peak_to_peak = y.max(0) - y.min(0)
     y[:, 0] += y_peak_to_peak[0] * 1e-4 * np.random.randn(N)
-
+    
     return t, u, y
 
 

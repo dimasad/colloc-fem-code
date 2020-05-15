@@ -29,6 +29,7 @@ def load_data():
     y = data[:, [7, 12]] * d2r
     
     # Add artificial noise
+    np.random.seed(0)
     N = len(y)
     y_peak_to_peak = y.max(0) - y.min(0)
     y[:, 0] += y_peak_to_peak[0] * 1e-4 * np.random.randn(N)
@@ -53,8 +54,8 @@ if __name__ == '__main__':
     #var0['B'][:] = Boem
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['Kp'][:] = np.eye(model.nx)
-    #var0['x'][:] = y - y[0]
+    var0['Kp'][:] = np.eye(model.nx) * 0.1
+    var0['x'][:] = y - y[0]
     var0['ybias'][:] = y[0]
     var0['isRp_tril'][symfem.tril_diag(2)] = 1e3
     
@@ -62,7 +63,7 @@ if __name__ == '__main__':
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
     dec_L, dec_U = dec_bounds
     var_L = problem.variables(dec_L)
-    var_U = problem.variables(dec_U)    
+    var_U = problem.variables(dec_U)
     #var_U['isRp_tril'][symfem.tril_diag(2)] = 1e5
     var_L['C'][:] = np.eye(2)
     var_U['C'][:] = np.eye(2)
@@ -78,9 +79,13 @@ if __name__ == '__main__':
     constr_L, constr_U = constr_bounds
     
     # Define problem scaling
-    dec_scale = np.ones(problem.ndec)
-    constr_scale = np.ones(problem.ncons)
     obj_scale = -1.0
+    constr_scale = np.ones(problem.ncons)
+    var_constr_scale = problem.unpack_constraints(constr_scale)
+    
+    dec_scale = np.ones(problem.ndec)
+    var_scale = problem.variables(dec_scale)
+    var_scale['isRp_tril'][:] = 1e-2
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
