@@ -32,7 +32,7 @@ def load_data():
     np.random.seed(0)
     N = len(y)
     y_peak_to_peak = y.max(0) - y.min(0)
-    y[:, 0] += y_peak_to_peak[0] * 1e-4 * np.random.randn(N)
+    y[:, 0] += y_peak_to_peak[0] * 1e-3 * np.random.randn(N)
     
     return t, u, y
 
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     #var0['B'][:] = Boem
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['Kp'][:] = np.eye(model.nx) * 0.1
+    var0['L'][:] = np.eye(model.nx) * 0.1
     var0['x'][:] = y - y[0]
     var0['ybias'][:] = y[0]
     var0['isRp_tril'][symfem.tril_diag(2)] = 1e3
@@ -69,8 +69,8 @@ if __name__ == '__main__':
     var_U['C'][:] = np.eye(2)
     var_L['D'][:] = np.zeros((2,1))
     var_U['D'][:] = np.zeros((2,1))
-    #var_L['Kp'][:] = np.zeros((2,2))
-    #var_U['Kp'][:] = np.zeros((2,2))
+    #var_L['L'][:] = np.zeros((2,2))
+    #var_U['L'][:] = np.zeros((2,2))
     #var_L['isRp_tril'][~symfem.tril_diag(2)] = 0
     #var_U['isRp_tril'][~symfem.tril_diag(2)] = 0
     
@@ -82,10 +82,12 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
+    var_constr_scale['innovation'][:] = 100
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
+    var_scale['e'][:] = 100
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
@@ -100,8 +102,8 @@ if __name__ == '__main__':
     Bopt = opt['B']
     Copt = opt['C']
     Dopt = opt['D']
-    Kpopt = opt['Kp']
+    Lopt = opt['L']
     ybiasopt = opt['ybias']
     isRpopt = symfem.tril_mat(model.ny, opt['isRp_tril'])
-    yopt = model.output(xopt, u, Copt, Dopt, ybiasopt)
-
+    yopt = xopt @ Copt.T + u @ Dopt.T + ybiasopt
+    eopt = opt['e']

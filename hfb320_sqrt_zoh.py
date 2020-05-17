@@ -76,7 +76,7 @@ if __name__ == '__main__':
     var0['A'][:] = np.eye(nx)
     var0['C'][:] = np.eye(ny, nx)
     var0['D'][:] = np.zeros((ny, nu))
-    var0['Kp'][:] = np.eye(nx, ny)
+    var0['L'][:] = np.eye(nx, ny)
     var0['KsRp'][:] = np.eye(nx, ny) * 1e-2
     var0['x'][:] = y[:, :nx]
     var0['isRp_tril'][symfem.tril_diag(ny)] = 1e2
@@ -151,7 +151,7 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    Kp = opt['Kp']
+    L = opt['L']
     KsRp = opt['KsRp']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']

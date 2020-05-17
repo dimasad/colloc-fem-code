@@ -24,51 +24,44 @@ class InnovationDTModel(symoptim.Model):
         # Define decision variables
         v = self.variables
         v['x'] = [f'x{i}' for i in range(nx)]
-        v['xn'] = [f'xn{i}' for i in range(nx)]
-        v['xp'] = [f'xp{i}' for i in range(nx)]
+        v['e'] = [f'e{i}' for i in range(ny)]
+        v['xnext'] = [f'xnext{i}' for i in range(nx)]
+        v['xprev'] = [f'xprev{i}' for i in range(nx)]
+        v['eprev'] = [f'eprev{i}' for i in range(ny)]
         v['ybias'] = [f'ybias{i}' for i in range(ny)]
         v['A'] = [[f'A{i}_{j}' for j in range(nx)] for i in range(nx)]
         v['B'] = [[f'B{i}_{j}' for j in range(nu)] for i in range(nx)]
         v['C'] = [[f'C{i}_{j}' for j in range(nx)] for i in range(ny)]
         v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]        
-        v['Kp'] = [[f'Kp{i}_{j}' for j in range(ny)] for i in range(nx)]
+        v['L'] = [[f'L{i}_{j}' for j in range(ny)] for i in range(nx)]
         v['isRp_tril'] = [f'isRp{i}_{j}' for i,j in tril_ind(ny)]
         self.decision.update({k for k in v if k != 'self'})
 
         # Define auxiliary variables
         v['u'] = [f'u{i}' for i in range(nu)]
         v['y'] = [f'y{i}' for i in range(ny)]
-        v['up'] = [f'up{i}' for i in range(nu)]
-        v['yp'] = [f'yp{i}' for i in range(ny)]
+        v['uprev'] = [f'uprev{i}' for i in range(nu)]
         
         # Register optimization functions
         self.add_constraint('defects')
+        self.add_constraint('innovation')
         self.add_objective('L')
-
-        # Mark extra functions to generate code
-        self.generate_functions.update({'output', 'propagate'})
-        
-    def defects(self, xn, xp, up, yp, A, B, C, D, Kp, ybias):
-        """Model dynamics defects."""
-        return xn - self.propagate(xp, up, yp, A, B, C, D, Kp, ybias)
     
-    def L(self, y, x, u, C, D, isRp_tril, ybias):
+    def defects(self, xnext, xprev, uprev, eprev, A, B, L):
+        """Model dynamics defects."""
+        xpred = A @ xprev + B @ uprev + L @ eprev
+        return xnext - xpred
+    
+    def innovation(self, y, e, x, u, C, D, ybias):
+        """Model dynamics defects."""
+        ymodel = C @ x + D @ u + ybias
+        return y - ymodel - e
+    
+    def L(self, e, isRp_tril):
         """Measurement log-likelihood."""
         isRp = tril_mat(self.ny, isRp_tril)
-        
-        ymodel = self.output(x, u, C, D, ybias)
-        e = y - ymodel
-        
         log_det_isRp = sum(sympy.log(d) for d in isRp.diagonal())
-        L = -0.5 * e.T @ isRp.T @ isRp @ e + log_det_isRp
-        return L
-    
-    def output(self, x, u, C, D, ybias):
-        return C @ x + D @ u + ybias
-    
-    def propagate(self, x, u, y, A, B, C, D, Kp, ybias):
-        e = y - self.output(x, u, C, D, ybias)
-        return A @ x + B @ u + Kp @ e
+        return -0.5 * e.T @ isRp.T @ isRp @ e + log_det_isRp
     
     @property
     def generate_assignments(self):
@@ -136,14 +129,14 @@ class NaturalDTModel(InnovationDTModel):
         resid = A @ Pc @ A.T + Q - Pc
         return [resid[i] for i in tril_ind(self.nx)]
     
-    def x_corr_cov(self, C, Kp, Pp, Pc):
-        resid = Pp - Kp @ C @ Pp - Pc
+    def x_corr_cov(self, C, L, Pp, Pc):
+        resid = Pp - L @ C @ Pp - Pc
         return [resid[i] for i in tril_ind(self.nx)]
     
-    def kalman_gain(self, C, Kp,  Pp, sRp_tril, isRp_tril):
+    def kalman_gain(self, C, L,  Pp, sRp_tril, isRp_tril):
         sRp = tril_mat(self.ny, sRp_tril)
         isRp = tril_mat(self.ny, isRp_tril)
-        return Pp @ C.T @ isRp.T - Kp @ sRp
+        return Pp @ C.T @ isRp.T - L @ sRp
     
     @property
     def generate_assignments(self):
@@ -233,9 +226,9 @@ class NaturalSqrtDTModel(InnovationDTModel):
                        [sPp.T @ C.T, sPp.T]])
         return corr_orth @ M1 - M2
     
-    def kalman_gain(self, Kp, KsRp, A, sRp_tril):
+    def kalman_gain(self, L, KsRp, A, sRp_tril):
         sRp = tril_mat(self.ny, sRp_tril)
-        return Kp @ sRp - A @ KsRp
+        return L @ sRp - A @ KsRp
     
     def Rp_inverse(self, isRp_tril, sRp_tril):
         isRp = tril_mat(self.ny, isRp_tril)

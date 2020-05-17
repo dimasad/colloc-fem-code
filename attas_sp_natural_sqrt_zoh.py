@@ -32,6 +32,12 @@ def load_data():
     y = (y - [0.003, 0.04]) * [10, 20]
     u = (u - 0.04) * 25
     
+    # Add artificial noise
+    np.random.seed(0)
+    N = len(y)
+    y_peak_to_peak = y.max(0) - y.min(0)
+    y[:, 0] += y_peak_to_peak[0] * 1e-3 * np.random.randn(N)
+    
     return t, u, y
 
 
@@ -49,7 +55,7 @@ if __name__ == '__main__':
     var0['A'][:] = np.eye(2)
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['Kp'][:] = np.eye(2)
+    var0['L'][:] = np.eye(2)
     var0['KsRp'][:] = np.eye(2) * 1e-2
     var0['x'][:] = y
     var0['isRp_tril'][symfem.tril_diag(2)] = 100
@@ -72,13 +78,11 @@ if __name__ == '__main__':
     var_L['D'][:] = np.zeros((2,1))
     var_U['D'][:] = np.zeros((2,1))
     var_L['isRp_tril'][symfem.tril_diag(2)] = 0
-    var_L['sRp_tril'][symfem.tril_diag(2)] = 1e-7
+    var_L['sRp_tril'][symfem.tril_diag(2)] = 1e-6
     var_L['sPp_tril'][symfem.tril_diag(2)] = 0
     var_L['sPc_tril'][symfem.tril_diag(2)] = 0
     var_L['sQ_tril'][symfem.tril_diag(2)] = 0
-    var_L['sR_tril'][symfem.tril_diag(2)] = 1e-4
-    var_L['sR_tril'][~symfem.tril_diag(2)] = 0
-    var_U['sR_tril'][~symfem.tril_diag(2)] = 0
+    var_L['sR_tril'][symfem.tril_diag(2)] = 1e-6
     var_L['Qc'][[0,1], [0,1]] = 0
     
     # Define bounds for constraints
@@ -89,6 +93,7 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
+    var_constr_scale['innovation'][:] = 10
     var_constr_scale['pred_cov'][:] = 100
     var_constr_scale['corr_cov'][:] = 100
     var_constr_scale['kalman_gain'][:] = 100
@@ -97,6 +102,7 @@ if __name__ == '__main__':
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
+    var_scale['e'][:] = 100
     var_scale['sRp_tril'][:] = 1e2
     var_scale['sPp_tril'][:] = 1e2
     var_scale['sPc_tril'][:] = 1e2
@@ -107,6 +113,7 @@ if __name__ == '__main__':
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
+        nlp.add_num_option('ma57_pre_alloc', 5.0)
         nlp.add_num_option('tol', 1e-9)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
@@ -121,7 +128,7 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    Kp = opt['Kp']
+    L = opt['L']
     KsRp = opt['KsRp']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']
@@ -132,8 +139,8 @@ if __name__ == '__main__':
     sPc = symfem.tril_mat(model.nx, opt['sPc_tril'])
     sQ = symfem.tril_mat(model.nx, opt['sQ_tril'])
     sR = symfem.tril_mat(model.nx, opt['sR_tril'])
-    yopt = model.output(xopt, u, C, D, ybias)
-    e = y - yopt
+    yopt = xopt @ C.T + u @ D.T + ybias
+    eopt = opt['e']
 
     Pc = sPc @ sPc.T
     Pp = sPp @ sPp.T

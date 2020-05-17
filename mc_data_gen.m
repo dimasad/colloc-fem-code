@@ -4,7 +4,7 @@ rng(0)
 
 nx = 3;
 nu = 2;
-ny = 3;
+ny = 2;
 nw = nx;
 
 N = 500;

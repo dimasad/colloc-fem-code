@@ -36,7 +36,7 @@ def load_data():
     np.random.seed(0)
     N = len(y)
     y_peak_to_peak = y.max(0) - y.min(0)
-    y[:, 0] += y_peak_to_peak[0] * 1e-4 * np.random.randn(N)
+    y[:, 0] += y_peak_to_peak[0] * 1e-3 * np.random.randn(N)
     
     return t, u, y
 
@@ -52,9 +52,10 @@ if __name__ == '__main__':
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
     var0['A'][:] = np.eye(2)
+    var0['B'][:] = np.ones((2,1))
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['Kp'][:] = np.eye(2)
+    var0['L'][:] = np.eye(2)
     var0['x'][:] = y
     var0['isRp_tril'][symfem.tril_diag(2)] = 100
     var0['W_diag'][:] = 1
@@ -77,13 +78,16 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
+    var_constr_scale['innovation'][:] = 10
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
+    var_scale['e'][:] = 100
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
+        nlp.add_num_option('ma57_pre_alloc', 10.0)
         nlp.add_num_option('tol', 1e-5)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
@@ -95,10 +99,10 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    Kp = opt['Kp']
+    L = opt['L']
     W = np.diag(opt['W_diag'])
     ybias = opt['ybias']
     isRp = symfem.tril_mat(model.ny, opt['isRp_tril'])
-    yopt = model.output(xopt, u, C, D, ybias)
-    eopt = y - yopt
+    yopt = xopt @ C.T + u @ D.T + ybias
+    eopt = opt['e']
 

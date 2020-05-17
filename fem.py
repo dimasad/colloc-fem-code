@@ -17,13 +17,10 @@ class InnovationDTProblem(optim.Problem):
         self.y = np.asarray(y)
         """Measurements."""
         
-        self.yp = self.y[:-1]
-        """Previous measurements."""        
-        
         self.u = np.asarray(u)
         """Inputs."""
 
-        self.up = self.u[:-1]
+        self.uprev = self.u[:-1]
         """Previous inputs."""        
         
         N = len(y)
@@ -42,22 +39,26 @@ class InnovationDTProblem(optim.Problem):
         self.add_decision('B', (model.nx, model.nu))
         self.add_decision('C', (model.ny, model.nx))
         self.add_decision('D', (model.ny, model.nu))
-        self.add_decision('Kp', (model.nx, model.ny))
+        self.add_decision('L', (model.nx, model.ny))
         x = self.add_decision('x', (N, model.nx))
+        e = self.add_decision('e', (N, model.ny))
         
         # Define and register dependent variables
-        xp = optim.Decision((N-1, model.nx), x.offset)
-        xn = optim.Decision((N-1, model.nx), x.offset + model.nx)
-        self.add_dependent_variable('xp', xp)
-        self.add_dependent_variable('xn', xn)
+        xprev = optim.Decision((N-1, model.nx), x.offset)
+        eprev = optim.Decision((N-1, model.ny), e.offset)
+        xnext = optim.Decision((N-1, model.nx), x.offset + model.nx)
+        self.add_dependent_variable('xprev', xprev)
+        self.add_dependent_variable('eprev', eprev)
+        self.add_dependent_variable('xnext', xnext)
     
         # Register problem functions
         self.add_objective(model.L, N)
         self.add_constraint(model.defects, (N - 1, model.nx))
+        self.add_constraint(model.innovation, (N, model.ny))
     
     def variables(self, dvec):
         """Get all variables needed to evaluate problem functions."""
-        return {'y': self.y, 'yp': self.yp, 'u': self.u, 'up': self.up,
+        return {'y': self.y, 'u': self.u, 'uprev': self.uprev,
                 **super().variables(dvec)}
 
 
