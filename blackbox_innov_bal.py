@@ -56,10 +56,6 @@ if __name__ == '__main__':
     model = symmodel.compile_class()()
     problem = fem.InnovationBalDTProblem(model, y, u)
     N = len(y)
-
-    # Random guess
-    np.random.seed(0)
-    C0 = np.linalg.qr(np.random.randn(nx, ny))[0].T
     
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
@@ -72,12 +68,6 @@ if __name__ == '__main__':
     var0['x'][:] = np.loadtxt('/tmp/xpred.txt')
     var0['W_diag'][:] = np.loadtxt('/tmp/gram.txt')
     var0['isRp_tril'][:] = np.loadtxt('/tmp/isRp.txt')[np.tril_indices(ny)]
-    #var0['A'][:] = np.eye(nx)
-    #var0['C'][:] = C0
-    #var0['L'][:] = np.eye(nx, ny)
-    #var0['x'][:] = y @ C0
-    #var0['W_diag'][:] = 1
-    #var0['isRp_tril'][symfem.tril_diag(ny)] = 1
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
@@ -97,16 +87,15 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['innovation'][:] = 100
+    var_constr_scale['innovation'][:] = 1e3
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
-    var_scale['e'][:] = 100
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
-        nlp.add_num_option('ma57_pre_alloc', 5.0)
+        nlp.add_num_option('ma57_pre_alloc', 10.0)
         nlp.add_num_option('tol', 1e-5)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
