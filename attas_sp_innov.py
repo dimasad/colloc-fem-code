@@ -82,12 +82,11 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['innovation'][:] = 100
+    var_constr_scale['innovation'][:] = 1e3
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
-    var_scale['e'][:] = 100
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')

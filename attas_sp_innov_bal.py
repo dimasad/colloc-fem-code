@@ -52,7 +52,7 @@ if __name__ == '__main__':
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
     var0['A'][:] = np.eye(2)
-    var0['B'][:] = np.ones((2,1))
+    var0['B'][:] = np.zeros((2,1))
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
     var0['L'][:] = np.eye(2)
@@ -83,7 +83,6 @@ if __name__ == '__main__':
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
-    var_scale['e'][:] = 100
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
@@ -92,6 +91,12 @@ if __name__ == '__main__':
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
         decopt, info = nlp.solve(dec0)
+
+        # Update scaling and refine
+        var_constr_scale['innovation'][:] = 1e3
+        nlp.set_scaling(obj_scale, dec_scale, constr_scale)
+        nlp.add_str_option('warm_start_init_point', 'yes')
+        decopt, info = nlp.solve(decopt)
     
     opt = problem.variables(decopt)    
     xopt = opt['x']

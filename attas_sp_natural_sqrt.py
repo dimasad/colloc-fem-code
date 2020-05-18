@@ -92,6 +92,7 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
+    var_constr_scale['innovation'][:] = 1e3
     var_constr_scale['pred_cov'][:] = 100
     var_constr_scale['corr_cov'][:] = 100
     var_constr_scale['kalman_gain'][:] = 100

@@ -66,6 +66,7 @@ if __name__ == '__main__':
     var0['sPc_tril'][symfem.tril_diag(2)] = 1e-2
     var0['pred_orth'][:] = np.eye(4, 2)
     var0['corr_orth'][:] = np.eye(4)
+    var0['Ac'][:] = -np.eye(2)
     var0['Qc'][:] = np.eye(2) * 1e-3
     
     # Define bounds for decision variables
@@ -93,7 +94,7 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['innovation'][:] = 10
+    var_constr_scale['innovation'][:] = 1e3
     var_constr_scale['pred_cov'][:] = 100
     var_constr_scale['corr_cov'][:] = 100
     var_constr_scale['kalman_gain'][:] = 100
@@ -102,7 +103,6 @@ if __name__ == '__main__':
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
-    var_scale['e'][:] = 100
     var_scale['sRp_tril'][:] = 1e2
     var_scale['sPp_tril'][:] = 1e2
     var_scale['sPc_tril'][:] = 1e2
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
-        nlp.add_num_option('ma57_pre_alloc', 5.0)
+        nlp.add_num_option('ma57_pre_alloc', 10.0)
         nlp.add_num_option('tol', 1e-9)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)

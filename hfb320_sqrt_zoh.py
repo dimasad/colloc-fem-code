@@ -6,6 +6,7 @@ import os
 
 import numpy as np
 import scipy.io
+import scipy.linalg
 import sympy
 import sym2num.model
 
@@ -57,6 +58,35 @@ def get_model(nx, nu, ny):
     return cls()
 
 
+def dt_eem(x, u, y):
+    N, nx = x.shape
+    _, nu = u.shape
+    _, ny = y.shape
+    
+    A = np.zeros((nx, nx))
+    B = np.zeros((nx, nu))
+    C = np.zeros((ny, nx))
+    D = np.zeros((ny, nu))
+    
+    for i in range(nx):
+        psi = np.zeros((N-1, nx+nu))
+        psi[:, :nx] = x[:-1]
+        psi[:, nx:] = u[:-1]
+        est = np.linalg.lstsq(psi, x[1:, i], rcond=None)
+        A[i, :] = est[0][:nx]
+        B[i, :] = est[0][nx:]
+
+    for i in range(ny):
+        psi = np.zeros((N, nx+nu))
+        psi[:, :nx] = x
+        psi[:, nx:] = u
+        est = np.linalg.lstsq(psi, y[:, i], rcond=None)
+        C[i, :] = est[0][:nx]
+        D[i, :] = est[0][nx:]
+    
+    return A, B, C, D
+
+
 if __name__ == '__main__':
     nx = 4
     nu = 2
@@ -64,18 +94,22 @@ if __name__ == '__main__':
     
     # Load experiment data
     t, u, y = load_data()
-    symmodel = symfem.NaturalSqrtZOHModel(nx=nx, nu=nu, ny=ny)
-    model = symmodel.compile_class()()
-    #model = get_model(nx, nu, ny)
+    #symmodel = symfem.NaturalSqrtZOHModel(nx=nx, nu=nu, ny=ny)
+    #model = symmodel.compile_class()()
+    model = get_model(nx, nu, ny)
     model.dt = t[1] - t[0]
     problem = fem.NaturalSqrtZOHProblem(model, y, u)
+    
+    # Equation error method initial guess
+    A0, B0, C0, D0 = dt_eem(y[:, :nx], u, y)
     
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
-    var0['A'][:] = np.eye(nx)
-    var0['C'][:] = np.eye(ny, nx)
-    var0['D'][:] = np.zeros((ny, nu))
+    var0['A'][:] = A0
+    var0['B'][:] = B0
+    var0['C'][:] = C0
+    var0['D'][:] = D0
     var0['L'][:] = np.eye(nx, ny)
     var0['KsRp'][:] = np.eye(nx, ny) * 1e-2
     var0['x'][:] = y[:, :nx]
@@ -88,6 +122,7 @@ if __name__ == '__main__':
     var0['pred_orth'][:] = np.eye(2*nx, nx)
     var0['corr_orth'][:] = np.eye(nx + ny, nx + ny)
     var0['Qc'][:] = np.eye(nx) * 1e-2
+    var0['Ac'][:] = scipy.linalg.logm(A0) / model.dt
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
@@ -119,6 +154,7 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
+    var_constr_scale['innovation'][:] = 1e2
     var_constr_scale['pred_cov'][:] = 100
     var_constr_scale['corr_cov'][:] = 100
     var_constr_scale['kalman_gain'][:] = 100
@@ -137,6 +173,7 @@ if __name__ == '__main__':
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
+        nlp.add_num_option('ma57_pre_alloc', 10.0)
         nlp.add_num_option('tol', 1e-9)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
@@ -163,8 +200,8 @@ if __name__ == '__main__':
     sPc = symfem.tril_mat(nx, opt['sPc_tril'])
     sQ = symfem.tril_mat(nx, opt['sQ_tril'])
     
-    yopt = model.output(xopt, u, C, D, ybias)
-    e = y - yopt
+    yopt = xopt @ C.T + u @ D.T + ybias
+    eopt = opt['e']
     
     Pc = sPc @ sPc.T
     Pp = sPp @ sPp.T
