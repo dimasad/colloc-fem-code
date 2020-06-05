@@ -1,4 +1,4 @@
-"""Tests with the ATTAS aircraft short-period mode estimation."""
+"""Black-box system identification."""
 
 
 import importlib
@@ -46,14 +46,16 @@ def load_data():
 
 
 if __name__ == '__main__':
-    nx = 3
-    nu = 2
-    ny = 2
+    nx = 5
+    nu = 3
+    ny = 3
     
     # Load experiment data
     u, y = load_data()
-    symmodel = symfem.InnovationBalDTModel(nx=nx, nu=nu, ny=ny)
-    model = symmodel.compile_class()()
+    #symmodel = symfem.InnovationBalDTModel(nx=nx, nu=nu, ny=ny)
+    #model = symmodel.compile_class()()
+    #save_generated_model(symmodel)
+    model = get_model(nx, nu, ny)
     problem = fem.InnovationBalDTProblem(model, y, u)
     N = len(y)
     
@@ -66,6 +68,7 @@ if __name__ == '__main__':
     var0['D'][:] = np.loadtxt('/tmp/d.txt')
     var0['L'][:] = np.loadtxt('/tmp/k.txt')
     var0['x'][:] = np.loadtxt('/tmp/xpred.txt')
+    var0['e'][:] = np.loadtxt('/tmp/epred.txt')
     var0['W_diag'][:] = np.loadtxt('/tmp/gram.txt')
     var0['isRp_tril'][:] = np.loadtxt('/tmp/isRp.txt')[np.tril_indices(ny)]
     
@@ -97,7 +100,7 @@ if __name__ == '__main__':
         nlp.add_str_option('linear_solver', 'ma57')
         nlp.add_num_option('ma57_pre_alloc', 10.0)
         nlp.add_num_option('tol', 1e-5)
-        nlp.add_int_option('max_iter', 1000)
+        nlp.add_int_option('max_iter', 10000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
         decopt, info = nlp.solve(dec0)
     

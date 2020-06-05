@@ -2,9 +2,9 @@
 %% Setup random number generator and define parameters
 rng(0)
 
-nx = 3;
-nu = 2;
-ny = 2;
+nx = 5;
+nu = 3;
+ny = 3;
 nw = nx;
 
 N = 500;
@@ -38,6 +38,8 @@ save -ascii /tmp/y.txt y
 d = iddata(y, u, 1);
 syse = n4sid(d, nx);
 [syseb, gram, T] = balreal(syse);
+
+%%
 A = syseb.a;
 B = syseb.b;
 C = syseb.c;
@@ -45,17 +47,20 @@ D = syseb.d;
 K = T * syse.k;
 
 xpred = zeros(N, nx);
+epred = zeros(N, ny);
 for i=1:N-1
     ui = u(i, :)';
     xi = xpred(i, :)';
     yi = y(i, :)';
     ei = yi - C*xi - D*ui;
     xnext = A*xi + B*ui + K*ei;
+    
     xpred(i+1, :) = xnext';
+    epred(i, :) = ei';
 end
-ypred = xpred * C' + u*D';
+epred(N,:) = y(N, :) - xpred(N,:) * C' - u(N,:)*D';
 
-Rp = cov(y-ypred);
+Rp = cov(epred);
 sRp = chol(Rp)';
 isRp = inv(sRp);
 
@@ -66,6 +71,7 @@ save -ascii /tmp/c.txt C
 save -ascii /tmp/d.txt D
 save -ascii /tmp/k.txt K
 save -ascii /tmp/xpred.txt xpred
+save -ascii /tmp/epred.txt epred
 save -ascii /tmp/gram.txt gram
 save -ascii /tmp/isRp.txt isRp
 
