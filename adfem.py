@@ -70,7 +70,27 @@ class BoundADConstraint(BoundADFunction):
 
 
 class BoundADObjective(BoundADFunction):
-    pass
+    def grad(self, *args, **kwargs):
+        adfun = self.adfun
+        ret = collections.OrderedDict()
+        for wrt in adfun.first_derivatives:
+            # Calculate the gradient
+            grad_fun = adfun.derivatives[wrt,]
+            grad_val = grad_fun(self.model, *args, **kwargs)
+            
+            # skip empty gradients
+            if not grad_val.size:
+                continue
+            
+            # Get the shape of the wrt argument
+            try:
+                wrt_shape = onp.shape(kwargs[wrt])
+            except KeyError:
+                wrt_shape = onp.shape(args[adfun.argnum(wrt) - 1])
+            
+            # Accumulate so the gradient has the same shape as the variable
+            ret[wrt] = grad_val.reshape(-1, *wrt_shape).sum(0)
+        return ret
 
 
 class ADFunction:
@@ -177,9 +197,9 @@ class ADFunction:
         
         self.fun = jnp.vectorize(self.fun, excluded=excluded, signature=sig)
         for wrt, d in self.derivatives.items():
-            wrtsig = (vectorized[var] for var in wrt)
+            wrtsig = (vectorized[var] for var in reversed(wrt))
             if self.core_shape:
-                outsig = ','.join((*wrtsig, self.core_shape))
+                outsig = ','.join((self.core_shape, *wrtsig))
             else:
                 outsig = ','.join(wrtsig)
             dsig = f"{arg_sig}->({outsig})"
@@ -235,9 +255,9 @@ class ADFunction:
             rem_ind = self._deriv_core_ind(wrt_rem, dec_shapes, out_shape)
             
             wrt0_core_size = shape_size(wrt0_core)
-            wrt0_rep = rem_ind[0].size
-            wrt0_ind = onp.repeat(onp.arange(wrt0_core_size), wrt0_rep)
-            core_ind = [onp.tile(i, wrt0_core_size) for i in rem_ind]
+            wrt0_tile = rem_ind[0].size
+            wrt0_ind = onp.tile(onp.arange(wrt0_core_size), wrt0_tile)
+            core_ind = [onp.repeat(i, wrt0_core_size) for i in rem_ind]
             core_ind.insert(0, wrt0_ind)
             return core_ind
     
