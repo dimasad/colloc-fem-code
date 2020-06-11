@@ -17,8 +17,66 @@ import numpy as onp
 jax.config.update("jax_enable_x64", True)
 
 
+class BoundADFunction:
+    def __init__(self, adfun, model):
+        self.adfun = adfun
+        self.model = model
+    
+    @property
+    def __signature__(self):
+        return bound_signature(self.adfun)
+    
+    @property
+    def __name__(self):
+        return self.adfun.__name__
+    
+    def __repr__(self):
+        cls = type(self)
+        name = getattr(self, '__name__', '*no name*')
+        return f"<{cls.__module__}.{cls.__name__} '{name}'>"
+    
+    def __call__(self, *args, **kwargs):
+        return self.adfun(self.model, *args, **kwargs)
+    
+    def hess_nnz(self, dec_shapes, out_shape):
+        adfun = self.adfun
+        return adfun._sparse_deriv_nnz(adfun.hessian, dec_shapes, out_shape)
+    
+    def hess_ind(self, dec_shapes, out_shape):
+        adfun = self.adfun
+        return adfun._sparse_deriv_ind(adfun.hessian, dec_shapes, out_shape)
+
+    def hess_val(self, *args, **kwargs):
+        adfun = self.adfun
+        wrt_seq = adfun.hessian
+        return adfun._sparse_deriv_val(wrt_seq, self.model, *args, **kwargs)
+
+
+class BoundADConstraint(BoundADFunction):
+    def jac_nnz(self, dec_shapes, out_shape):
+        adfun = self.adfun
+        d1 = adfun.first_derivatives
+        return adfun._sparse_deriv_nnz(d1, dec_shapes, out_shape)
+    
+    def jac_ind(self, dec_shapes, out_shape):
+        adfun = self.adfun
+        d1 = adfun.first_derivatives
+        return adfun._sparse_deriv_ind(d1, dec_shapes, out_shape)
+
+    def jac_val(self, *args, **kwargs):
+        adfun = self.adfun
+        d1 = adfun.first_derivatives
+        return adfun._sparse_deriv_val(d1, *args, **kwargs)
+
+
+class BoundADObjective(BoundADFunction):
+    pass
+
+
 class ADFunction:
     """Helper for optimization function automatic differentiation."""
+
+    BoundClass = BoundADFunction
     
     def __init__(self, fun, core_shape=''):
         self.fun = fun
@@ -30,10 +88,10 @@ class ADFunction:
         self.hessian = None
         """Hessian elements."""
         
-        self.sig = inspect.signature(self.fun)
+        self.__signature__ = inspect.signature(self.fun)
         """The underlying function's signature."""
         
-        self.args = list(self.sig.parameters)
+        self.args = list(self.__signature__.parameters)
         """The underlying function argument names."""
         
         self.derivatives = {}
@@ -44,6 +102,23 @@ class ADFunction:
         
         self.isvectorized = False
         """Whether the function is vectorized"""
+    
+    def __call__(self, *args, **kwargs):
+        return self.fun(*args, **kwargs)
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
+        else:
+            return self.BoundClass(self, instance)
+
+    def __set_name__(self, owner, name):
+        self.__name__ = name
+    
+    def __repr__(self):
+        cls = type(self)
+        name = getattr(self, '__name__', '*no name*')
+        return f"<{cls.__module__}.{cls.__name__} '{name}'>"
     
     def argnum(self, argname):
         return self.args.index(argname)
@@ -102,7 +177,13 @@ class ADFunction:
         
         self.fun = jnp.vectorize(self.fun, excluded=excluded, signature=sig)
         for wrt, d in self.derivatives.items():
-            vecd = jnp.vectorize(d, excluded=excluded, signature=sig)
+            wrtsig = (vectorized[var] for var in wrt)
+            if self.core_shape:
+                outsig = ','.join((*wrtsig, self.core_shape))
+            else:
+                outsig = ','.join(wrtsig)
+            dsig = f"{arg_sig}->({outsig})"
+            vecd = jnp.vectorize(d, excluded=excluded, signature=dsig)
             self.derivatives[wrt] = vecd
         
         core_shape = self.core_shape
@@ -194,20 +275,25 @@ class ADFunction:
             # Save in dictionary
             ret[wrt] = onp.array(ind)
         return ret
-    
-    def hess_nnz(self, dec_shapes, out_shape):
-        return self._sparse_deriv_nnz(self.hessian, dec_shapes, out_shape)
-    
-    def hess_ind(self, dec_shapes, out_shape):
-        return self._sparse_deriv_ind(self.hessian, dec_shapes, out_shape)
+
+    def _sparse_deriv_val(self, wrt_seq, *args, **kwargs):
+        ret = collections.OrderedDict()
+        for wrt in wrt_seq:
+            deriv = self.derivatives[wrt]
+            ret[wrt] = deriv(*args, **kwargs)
+        return ret
 
 
 class ADConstraint(ADFunction):
     """Helper for constraint function automatic differentiation."""
 
+    BoundClass = BoundADConstraint
+    
 
 class ADObjective(ADFunction):
-    """Helper for constraint function automatic differentiation."""
+    """Helper for objective function automatic differentiation."""
+
+    BoundClass = BoundADObjective
 
 
 def constraint(core_shape_or_fun=None):
@@ -261,7 +347,9 @@ class InnovationDTModel(ADModel):
     
     vectorized = dict(
         x='nx', e='ny', xnext='nx', xprev='nx', eprev='ny',
-        u='nu', y='ny', uprev='nu'
+        u='nu', y='ny', uprev='nu',
+        A='nx,nx', B='nx,nu', C='ny,nx', D='ny,nu', L='nx,ny', ybias='ny',
+        isRp_tril='nty',
     )
     """Decision variables of the optimization problem."""
     
@@ -274,7 +362,6 @@ class InnovationDTModel(ADModel):
         
         self.ny = ny
         """Number of outputs."""
-    
     
     @hessian(('xprev', 'A'), ('eprev', 'L'))
     @constraint('nx')
@@ -315,3 +402,10 @@ def shape_size(shape):
 def ndim_range(shape):
     assert isinstance(shape, tuple)
     return onp.arange(shape_size(shape)).reshape(shape)
+
+
+def bound_signature(method):
+    """Return the signature of a method when bound."""
+    sig = inspect.signature(method)
+    param = list(sig.parameters.values())[1:]
+    return inspect.Signature(param, return_annotation=sig.return_annotation)
