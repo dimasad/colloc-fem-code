@@ -52,16 +52,17 @@ class InnovationDTModel(symoptim.Model):
         xpred = A @ xprev + B @ uprev + L @ eprev
         return xnext - xpred
     
-    def innovation(self, y, e, x, u, C, D, ybias):
+    def innovation(self, y, e, x, u, C, D, ybias, isRp_tril):
         """Model dynamics defects."""
+        isRp = tril_mat(isRp_tril)
         ymodel = C @ x + D @ u + ybias
-        return y - ymodel - e
+        return isRp @ (y - ymodel) - e
     
     def L(self, e, isRp_tril):
         """Measurement log-likelihood."""
-        isRp = tril_mat(self.ny, isRp_tril)
+        isRp = tril_mat(isRp_tril)
         log_det_isRp = sum(sympy.log(d) for d in isRp.diagonal())
-        return -0.5 * e.T @ isRp.T @ isRp @ e + log_det_isRp
+        return -0.5 * (e ** 2).sum() + log_det_isRp
     
     @property
     def generate_assignments(self):
@@ -114,14 +115,14 @@ class NaturalDTModel(InnovationDTModel):
         return psd_constraint(R, sR_tril)
         
     def Rp_inverse(self, isRp_tril, sRp_tril):
-        isRp = tril_mat(self.ny, isRp_tril)
-        sRp = tril_mat(self.ny, sRp_tril)
+        isRp = tril_mat(isRp_tril)
+        sRp = tril_mat(sRp_tril)
         I = np.eye(self.ny)
         resid = sRp @ isRp - I
         return [resid[i] for i in tril_ind(self.ny)]
     
     def output_cov(self, C, Pp, R, sRp_tril):
-        sRp = tril_mat(self.ny, sRp_tril)
+        sRp = tril_mat(sRp_tril)
         resid = C @ Pp @ C.T + R - sRp @ sRp.T
         return [resid[i] for i in tril_ind(self.ny)]
     
@@ -134,8 +135,8 @@ class NaturalDTModel(InnovationDTModel):
         return [resid[i] for i in tril_ind(self.nx)]
     
     def kalman_gain(self, C, L,  Pp, sRp_tril, isRp_tril):
-        sRp = tril_mat(self.ny, sRp_tril)
-        isRp = tril_mat(self.ny, isRp_tril)
+        sRp = tril_mat(sRp_tril)
+        isRp = tril_mat(isRp_tril)
         return Pp @ C.T @ isRp.T - L @ sRp
     
     @property
@@ -206,18 +207,18 @@ class NaturalSqrtDTModel(InnovationDTModel):
         return [resid[i] for i in tril_ind(self.nx + self.ny)]
     
     def pred_cov(self, A, sPp_tril, sPc_tril, sQ_tril, pred_orth):
-        sPp = tril_mat(self.nx, sPp_tril)
-        sPc = tril_mat(self.nx, sPc_tril)
-        sQ = tril_mat(self.nx, sQ_tril)
+        sPp = tril_mat(sPp_tril)
+        sPc = tril_mat(sPc_tril)
+        sQ = tril_mat(sQ_tril)
         bmat = np.block([[sPc.T @ A.T], [sQ.T]])
         return pred_orth @ sPp.T - bmat
 
     def corr_cov(self, C, sR_tril, sRp_tril, sPp_tril, sPc_tril, KsRp, 
                  corr_orth):
-        sPp = tril_mat(self.nx, sPp_tril)
-        sPc = tril_mat(self.nx, sPc_tril)
-        sRp = tril_mat(self.ny, sRp_tril)
-        sR = tril_mat(self.ny, sR_tril)
+        sPp = tril_mat(sPp_tril)
+        sPc = tril_mat(sPc_tril)
+        sRp = tril_mat(sRp_tril)
+        sR = tril_mat(sR_tril)
         
         zeros = np.zeros((self.nx, self.ny))
         M1 = np.block([[sRp.T, KsRp.T], 
@@ -227,12 +228,12 @@ class NaturalSqrtDTModel(InnovationDTModel):
         return corr_orth @ M1 - M2
     
     def kalman_gain(self, L, KsRp, A, sRp_tril):
-        sRp = tril_mat(self.ny, sRp_tril)
+        sRp = tril_mat(sRp_tril)
         return L @ sRp - A @ KsRp
     
     def Rp_inverse(self, isRp_tril, sRp_tril):
-        isRp = tril_mat(self.ny, isRp_tril)
-        sRp = tril_mat(self.ny, sRp_tril)
+        isRp = tril_mat(isRp_tril)
+        sRp = tril_mat(sRp_tril)
         I = np.eye(self.ny)
         resid = sRp @ isRp - I
         return [resid[i] for i in tril_ind(self.ny)]
@@ -270,7 +271,7 @@ class NaturalSqrtZOHModel(NaturalSqrtDTModel):
         return eF[:self.nx] - np.c_[A, B]
 
     def discretize_Q(self, A, Ac, sQ_tril, Qc, dt):
-        sQ = tril_mat(self.nx, sQ_tril)
+        sQ = tril_mat(sQ_tril)
         z = np.zeros((self.nx, self.nx))
         F = np.block([[-Ac, Qc], [z, Ac.T]]) * dt
         eF = expm_taylor(F, self.expm_order)
@@ -285,7 +286,9 @@ def tril_diag(n):
     return np.array([i==j for (i,j) in tril_ind(n)])
 
 
-def tril_mat(n, elem):
+def tril_mat(elem):
+    ntril = len(elem)
+    n = int(round(0.5*(np.sqrt(8*ntril + 1) - 1)))
     mat = np.zeros((n, n), dtype=elem.dtype)
     for ind, val in zip(tril_ind(n), elem):
         mat[ind] = val

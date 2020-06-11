@@ -396,20 +396,22 @@ class InnovationDTModel(ADModel):
     def innovation(self, y, e, x, u, C, D, ybias, isRp_tril):
         """Model dynamics defects."""
         ymodel = C @ x + D @ u + ybias
-        isRp = tril_mat(self.ny, isRp_tril)
+        isRp = tril_mat(isRp_tril)
         return isRp @ (y - ymodel) - e
     
     @hessian(('e', 'e'), ('isRp_tril', 'isRp_tril'))
     @objective
     def L(self, e, isRp_tril):
         """Measurement log-likelihood."""
-        isRp = tril_mat(self.ny, isRp_tril)
+        isRp = tril_mat(isRp_tril)
         log_det_isRp = jnp.log(isRp.diagonal()).sum()
         return -0.5 * (e ** 2).sum() + log_det_isRp
 
 
-def tril_mat(n, tril_elem):
+def tril_mat(tril_elem):
     """Build a matrix from its lower-triangular elements."""
+    ntril = len(tril_elem)
+    n = int(round(0.5*(onp.sqrt(8*ntril + 1) - 1)))
     tril_ind = onp.tril_indices(n)
     M = jnp.zeros((n, n))
     return M.at[tril_ind].set(tril_elem)
