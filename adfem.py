@@ -1,6 +1,7 @@
 """Automatic differentiation filter-error method estimation models."""
 
 
+import collections
 import functools
 import inspect
 import itertools
@@ -19,44 +20,191 @@ jax.config.update("jax_enable_x64", True)
 class ADFunction:
     """Helper for optimization function automatic differentiation."""
     
-    def __init__(self, fun):
+    def __init__(self, fun, core_shape=''):
         self.fun = fun
         """Underlying function."""
         
-        self.hess = None
+        self.core_shape = core_shape
+        """The shape of the output of the elementary function, if vectorized."""
+        
+        self.hessian = None
         """Hessian elements."""
-    
-    @property
-    def sig(self):
-        return inspect.signature(self.fun)
-    
-    @property
-    def args(self):
-        return self.sig.parameters.keys()
+        
+        self.sig = inspect.signature(self.fun)
+        """The underlying function's signature."""
+        
+        self.args = list(self.sig.parameters)
+        """The underlying function argument names."""
+        
+        self.derivatives = {}
+        """Dictionary of function derivatives."""
 
+        self.first_derivatives = []
+        """Sequence of registered first derivatives."""
+        
+        self.isvectorized = False
+        """Whether the function is vectorized"""
+    
     def argnum(self, argname):
-        return list(self.args).index(argname)
-
-    def deriv(self, wrt):
+        return self.args.index(argname)
+    
+    def derivative(self, wrt):
         if isinstance(wrt, str):
             wrt_tuple = wrt,
-            return self.deriv(wrt_tuple)
-
-        deriv = self.fun
-        for argname in wrt:
-            argnum = self.argnum(argname)
-            deriv = jax.jacobian(deriv, argnum)
+            return self.derivative(wrt_tuple)
+        
+        # Trivial case, i.e., 0-th derivative
+        if wrt == ():
+            return self.fun
+        
+        # Return the registered derivative, if it exists
+        try:
+            return self.derivatives[wrt]
+        except KeyError:
+            pass
+        
+        # Compute the derivative
+        assert len(wrt) >= 1
+        fun = self.derivative(wrt[1:])
+        argnum = self.argnum(wrt[0])
+        deriv = jax.jacrev(fun, argnum)
+        
+        # Save it and return
+        self.derivatives[wrt] = deriv
         return deriv
+    
+    def prepare_derivatives(self, decision):
+        # Compute and save the first derivatives
+        for d in self.args:
+            if d in decision:
+                self.derivative(d)
+                self.first_derivatives.append(d)
+        
+        # Define default Hessian, if unset
+        if self.hessian is None:
+            first_deriv = self.first_derivatives
+            hess_gen = itertools.combinations_with_replacement(first_deriv, 2)
+            self.hessian = list(hess_gen)
+        
+        # Compute second derivatives
+        for wrt_pair in self.hessian:
+            self.derivative(wrt_pair)
+    
+    def vectorize(self, vectorized):
+        vec_args = [a for a in self.args if a in vectorized]
+        excluded = [i for i,a in enumerate(self.args) if a not in vectorized]
+        
+        if not vec_args:
+            return
+        
+        arg_sig = ",".join(f'({vectorized[a]})' for a in vec_args)
+        sig = f"{arg_sig}->({self.core_shape})"
+        
+        self.fun = jnp.vectorize(self.fun, excluded=excluded, signature=sig)
+        for wrt, d in self.derivatives.items():
+            vecd = jnp.vectorize(d, excluded=excluded, signature=sig)
+            self.derivatives[wrt] = vecd
+        
+        core_shape = self.core_shape
+        out_core_ndim = len(core_shape.split(',')) if core_shape else 0
+        self.core_ndim = {a: len(vectorized[a].split(',')) for a in vec_args}
+        self.core_ndim[None] = out_core_ndim
+        self.isvectorized = True
+    
+    def _split_shape(self, shape, varname=None):
+        """Split a variable's shape into extension and core."""
+        try:
+            core_ndim = self.core_ndim[varname]
+        except KeyError:
+            return (), shape #This variable is not vectorized
+        
+        # Test whether the core element is scalar (ndim==0)
+        if core_ndim:
+            return shape[:-core_ndim], shape[-core_ndim:]
+        else:
+            return shape, ()        
+    
+    def _ext_shape(self, shape, varname=None):
+        """Return a variable's shape extension."""
+        return self._split_shape(shape, varname)[0]
+    
+    def _core_shape(self, shape, varname=None):
+        """Return a variable's core shape."""
+        return self._split_shape(shape, varname)[1]
+        
+    def _deriv_core_shape(self, wrt, dec_shapes, out_shape):
+        out_ext, out_core = self._split_shape(out_shape)
+        if len(wrt) == 0:
+            return out_core
+        else:
+            wrt0, *wrt_rem = wrt
+            wrt0_shape = dec_shapes[wrt0]
+            wrt0_ext, wrt0_core = self._split_shape(wrt0_shape, wrt0)
+            rem_core = self._deriv_core_shape(wrt_rem, dec_shapes, out_shape)
+            return wrt0_core + rem_core
+    
+    def _deriv_core_ind(self, wrt, dec_shapes, out_shape):
+        if len(wrt) == 0:
+            out_ext, out_core = self._split_shape(out_shape)
+            return [onp.arange(shape_size(out_core))]
+        else:
+            wrt0, *wrt_rem = wrt
+            wrt0_shape = dec_shapes[wrt0]
+            wrt0_ext, wrt0_core = self._split_shape(wrt0_shape, wrt0)
+            rem_ind = self._deriv_core_ind(wrt_rem, dec_shapes, out_shape)
+            
+            wrt0_core_size = shape_size(wrt0_core)
+            wrt0_rep = rem_ind[0].size
+            wrt0_ind = onp.repeat(onp.arange(wrt0_core_size), wrt0_rep)
+            core_ind = [onp.tile(i, wrt0_core_size) for i in rem_ind]
+            core_ind.insert(0, wrt0_ind)
+            return core_ind
+    
+    def _sparse_deriv_nnz(self, wrt_seq, dec_shapes, out_shape):
+        nnz = 0
+        out_ext, out_core = self._split_shape(out_shape)
+        ext_sz = shape_size(out_ext)
+        for wrt in wrt_seq:
+            deriv_core = self._deriv_core_shape(wrt, dec_shapes, out_shape)
+            nnz += shape_size(deriv_core) * ext_sz
+        return nnz
+    
+    def _sparse_deriv_ind(self, wrt_seq, dec_shapes, out_shape):
+        out_ext, out_core = self._split_shape(out_shape)
+        core_out_sz = shape_size(out_core)
+        
+        ret = collections.OrderedDict()
+        for wrt in wrt_seq:
+            ind = []
+            base_ind = self._deriv_core_ind(wrt, dec_shapes, out_shape)
+            for wrt_name, wrt_ind in zip(wrt, base_ind):
+                wrt_shape = dec_shapes[wrt_name]
+                wrt_ext, wrt_core = self._split_shape(wrt_shape, wrt_name)
+                wrt_core_sz = shape_size(wrt_core)
+                
+                wrt_offs = ndim_range(wrt_ext) * wrt_core_sz
+                wrt_offs = onp.broadcast_to(wrt_offs, out_ext)
+                ind.append(wrt_ind + wrt_offs[..., None])
+            
+            # Extend the output indices
+            out_ind = base_ind[-1]
+            out_offs = ndim_range(out_ext) * core_out_sz
+            ind.append(out_ind + out_offs[..., None])
+            
+            # Save in dictionary
+            ret[wrt] = onp.array(ind)
+        return ret
+    
+    def hess_nnz(self, dec_shapes, out_shape):
+        return self._sparse_deriv_nnz(self.hessian, dec_shapes, out_shape)
+    
+    def hess_ind(self, dec_shapes, out_shape):
+        return self._sparse_deriv_ind(self.hessian, dec_shapes, out_shape)
+
 
 class ADConstraint(ADFunction):
     """Helper for constraint function automatic differentiation."""
-    
-    def __init__(self, fun, core_shape=None):
-        super().__init__(fun)
-        
-        self.core_shape = core_shape
-        """The shape of the output of the elementary function, if vectorized."""
-    
+
 
 class ADObjective(ADFunction):
     """Helper for constraint function automatic differentiation."""
@@ -97,49 +245,10 @@ class ADModel:
         """The core shape of vectorized variables."""
         
         cls_items = cls.__dict__.items()
-        adfun = {k:v for k,v in cls_items if isinstance(v, ADFunction)}
-        for name, spec in adfun.items():
-            cls.setup_ad_function(name, spec)
-            
-    @classmethod
-    def setup_ad_function(cls, name, spec):
-        wrt = cls.decision.intersection(spec.args)
-        
-        for argname in wrt:
-            derivname = cls.first_derivative_name(name, argname)
-            deriv = spec.deriv(argname)
-            setattr(cls, derivname, deriv)
-    
-        hess = spec.hess
-        if hess is None:
-            hess = itertools.combinations_with_replacement(wrt, 2)
-        for pair in hess:
-            derivname = cls.second_derivative_name(name, pair)
-            deriv = spec.deriv(pair)
-            setattr(cls, derivname, deriv)
-        
-        setattr(cls, name, spec.fun)
-        
-        # Vectorize
-        # Create ceacoest.optim wrapper
-    
-    @staticmethod
-    def first_derivative_name(fname, wrtname):
-        """Generator of default name of first derivatives."""
-        assert isinstance(fname, str)
-        assert isinstance(wrtname, str)
-        return f'd{fname}_d{wrtname}'
-    
-    @staticmethod
-    def second_derivative_name(fname, wrt):
-        """Generator of default name of second derivatives."""
-        if not isinstance(wrt, tuple) or len(wrt) != 2:
-            raise ValueError("wrt must be a two-element tuple")
-        
-        if wrt[0] == wrt[1]:
-            return f'd2{fname}_d{wrt[0]}2'
-        else:
-            return f'd2{fname}_d{wrt[0]}_d{wrt[1]}'
+        adfuns = {k:v for k,v in cls_items if isinstance(v, ADFunction)}
+        for name, adfun in adfuns.items():
+            adfun.prepare_derivatives(cls.decision)
+            adfun.vectorize(cls.vectorized)
 
 
 class InnovationDTModel(ADModel):
@@ -198,3 +307,11 @@ def tril_mat(n, tril_elem):
     M = jnp.zeros((n, n))
     return M.at[tril_ind].set(tril_elem)
 
+
+def shape_size(shape):
+    return onp.prod(shape, dtype=int)
+
+
+def ndim_range(shape):
+    assert isinstance(shape, tuple)
+    return onp.arange(shape_size(shape)).reshape(shape)
