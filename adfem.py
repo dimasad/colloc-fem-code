@@ -417,7 +417,7 @@ class InnovationDTModel(ADModel):
     
     @hessian(('xprev', 'A'), ('eprev', 'L'))
     @constraint('nx')
-    def defects(self, xnext, xprev, uprev, eprev, A, B, L):
+    def dynamics(self, xnext, xprev, uprev, eprev, A, B, L):
         """Model dynamics defects."""
         xpred = A @ xprev + B @ uprev + L @ eprev
         return xnext - xpred
@@ -426,7 +426,7 @@ class InnovationDTModel(ADModel):
              ('D', 'isRp_tril'), ('ybias', 'isRp_tril'))
     @constraint('ny')
     def innovation(self, y, e, x, u, C, D, ybias, isRp_tril):
-        """Model dynamics defects."""
+        """Model normalized innovation constraint."""
         ymodel = C @ x + D @ u + ybias
         isRp = tril_mat(isRp_tril)
         return isRp @ (y - ymodel) - e

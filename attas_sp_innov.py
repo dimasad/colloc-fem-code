@@ -92,11 +92,11 @@ if __name__ == '__main__':
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
-    var0['A'][:] = A0
-    var0['B'][:] = B0
+    var0['A'][:] = np.eye(2)
+    var0['B'][:] = np.zeros((2,1))
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['L'][:] = np.eye(model.nx, model.nx) * 1e-2
+    var0['L'][:] = np.eye(nx, nx) * 1e-2
     var0['x'][:] = y - y[0]
     var0['ybias'][:] = y[0]
     var0['isRp_tril'][symfem.tril_diag(2)] = 1e2

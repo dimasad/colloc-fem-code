@@ -29,8 +29,13 @@ def load_data():
     y = data[:, [7, 12]] * d2r
 
     # Shift and rescale
-    y = (y - [0.003, 0.04]) * [10, 20]
-    u = (u - 0.04) * 25
+    yshift = np.r_[-0.003, -0.04]
+    yscale = np.r_[10.0, 20.0]
+    ushift = np.r_[0.04]
+    uscale = np.r_[25.0]
+    
+    y = (y + yshift) * yscale
+    u = (u + ushift) * uscale
     
     # Add artificial noise
     np.random.seed(0)
@@ -38,27 +43,66 @@ def load_data():
     y_peak_to_peak = y.max(0) - y.min(0)
     y[:, 0] += y_peak_to_peak[0] * 1e-3 * np.random.randn(N)
     
-    return t, u, y
+    return t, u, y, yshift, yscale, ushift, uscale
+
+
+def dt_eem(x, u, y):
+    N, nx = x.shape
+    _, nu = u.shape
+    _, ny = y.shape
+    
+    A = np.zeros((nx, nx))
+    B = np.zeros((nx, nu))
+    C = np.zeros((ny, nx))
+    D = np.zeros((ny, nu))
+    
+    for i in range(nx):
+        psi = np.zeros((N-1, nx+nu))
+        psi[:, :nx] = x[:-1]
+        psi[:, nx:] = u[:-1]
+        est = np.linalg.lstsq(psi, x[1:, i], rcond=None)
+        A[i, :] = est[0][:nx]
+        B[i, :] = est[0][nx:]
+
+    for i in range(ny):
+        psi = np.zeros((N, nx+nu))
+        psi[:, :nx] = x
+        psi[:, nx:] = u
+        est = np.linalg.lstsq(psi, y[:, i], rcond=None)
+        C[i, :] = est[0][:nx]
+        D[i, :] = est[0][nx:]
+    
+    return A, B, C, D
 
 
 if __name__ == '__main__':
-    # Load experiment data
-    t, u, y = load_data()
-    symmodel = symfem.InnovationBalDTModel(nx=2, nu=1, ny=2)
-    model = symmodel.compile_class()()
-    problem = fem.InnovationBalDTProblem(model, y, u)
+    nx = 2
+    nu = 1
+    ny = 2
     
+    # Load experiment data
+    t, u, y, yshift, yscale, ushift, uscale = load_data()
+    symmodel = symfem.BalancedDTModel(nx=nx, nu=nu, ny=ny)
+    model = symmodel.compile_class()()
+    problem = fem.BalancedDTProblem(model, y, u)
+    
+    # Equation error method initial guess
+    A0, B0, C0, D0 = dt_eem(y, u, y)
+
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
-    var0['A'][:] = np.eye(2)
-    var0['B'][:] = np.zeros((2,1))
+    var0['A'][:] = A0
+    var0['B'][:] = B0
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['L'][:] = np.eye(2)
-    var0['x'][:] = y
-    var0['isRp_tril'][symfem.tril_diag(2)] = 100
-    var0['W_diag'][:] = 1
+    var0['L'][:] = np.eye(nx, nx) * 1e-2
+    var0['x'][:] = y - y[0]
+    var0['ybias'][:] = y[0]
+    var0['isRp_tril'][symfem.tril_diag(2)] = 1e2
+    var0['sW_diag'][:] = 1
+    var0['ctrl_orth'][:] = np.eye(nx, nx+nu)
+    var0['obs_orth'][:] = np.eye(nx, nx+ny)
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
@@ -66,7 +110,7 @@ if __name__ == '__main__':
     var_L = problem.variables(dec_L)
     var_U = problem.variables(dec_U)
     var_L['isRp_tril'][symfem.tril_diag(2)] = 0
-    var_L['W_diag'][:] = 0
+    var_L['sW_diag'][:] = 0
     
     # Define bounds for constraints
     constr_bounds = np.zeros((2, problem.ncons))
@@ -78,15 +122,16 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['innovation'][:] = 10
+    var_constr_scale['innovation'][:] = 1
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
     var_scale['isRp_tril'][:] = 1e-2
+    var_scale['L'][:] = 1e2
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
-        nlp.add_num_option('ma57_pre_alloc', 10.0)
+        nlp.add_num_option('ma57_pre_alloc', 25.0)
         nlp.add_num_option('tol', 1e-5)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)

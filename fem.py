@@ -34,7 +34,7 @@ class InnovationDTProblem(optim.Problem):
         
         # Register decision variables
         self.add_decision('ybias', model.ny)
-        self.add_decision('isRp_tril', model.n_tril_y)
+        self.add_decision('isRp_tril', model.nty)
         self.add_decision('A', (model.nx, model.nx))
         self.add_decision('B', (model.nx, model.nu))
         self.add_decision('C', (model.ny, model.nx))
@@ -52,8 +52,8 @@ class InnovationDTProblem(optim.Problem):
         self.add_dependent_variable('xnext', xnext)
     
         # Register problem functions
-        self.add_objective(model.L, N)
-        self.add_constraint(model.defects, (N - 1, model.nx))
+        self.add_objective(model.loglikelihood, N)
+        self.add_constraint(model.dynamics, (N - 1, model.nx))
         self.add_constraint(model.innovation, (N, model.ny))
     
     def variables(self, dvec):
@@ -63,77 +63,55 @@ class InnovationDTProblem(optim.Problem):
 
 
 
-class NaturalDTProblem(InnovationDTProblem):
-
-    def __init__(self, model, y, u):
-        super().__init__(model, y, u)
-        
-        # Register decision variables
-        self.add_decision('Pp', (model.nx, model.nx))
-        self.add_decision('Pc', (model.nx, model.nx))
-        self.add_decision('Q', (model.nx, model.nx))
-        self.add_decision('R', (model.ny, model.ny))
-        self.add_decision('sRp_tril', model.n_tril_y)
-        self.add_decision('sPp_tril', model.n_tril_x)
-        self.add_decision('sPc_tril', model.n_tril_x)
-        self.add_decision('sQ_tril', model.n_tril_x)
-        self.add_decision('sR_tril', model.n_tril_y)
-        
-        # Register constraint functions
-        self.add_constraint(model.Rp_inverse, model.n_tril_y)
-        self.add_constraint(model.output_cov, model.n_tril_y)
-        self.add_constraint(model.x_pred_cov, model.n_tril_x)
-        self.add_constraint(model.x_corr_cov, model.n_tril_x)
-        self.add_constraint(model.kalman_gain, (model.nx, model.ny))
-        self.add_constraint(model.Pp_psd, (model.nx, model.nx))
-        self.add_constraint(model.Pc_psd, (model.nx, model.nx))
-        self.add_constraint(model.Q_psd, (model.nx, model.nx))
-        self.add_constraint(model.R_psd, (model.ny, model.ny))
-
-
-class InnovationBalDTProblem(InnovationDTProblem):
+class BalancedDTProblem(InnovationDTProblem):
     def __init__(self, model, y, u):
         super().__init__(model, y, u)
         
         nx = model.nx
-        n_tril_x = nx * (nx + 1) // 2
-
+        nu = model.nu
+        ny = model.ny
+        ntx = nx * (nx + 1) // 2
+        
         # Register decision variables
-        self.add_decision('W_diag', model.nx)
+        self.add_decision('sW_diag', nx)
+        self.add_decision('ctrl_orth', (nx, nx + nu))
+        self.add_decision('obs_orth', (nx, nx + ny))
         
         # Register constraint functions
-        self.add_constraint(model.ctrl_gram, n_tril_x)
-        self.add_constraint(model.obs_gram, n_tril_x)
+        self.add_constraint(model.ctrl_gram, (nx, nx + nu))
+        self.add_constraint(model.obs_gram, (nx, nx + ny))
+        self.add_constraint(model.ctrl_orthogonality, ntx)
+        self.add_constraint(model.obs_orthogonality, ntx)
 
 
-class NaturalSqrtDTProblem(InnovationDTProblem):
+class MaximumLikelihoodDTProblem(InnovationDTProblem):
 
     def __init__(self, model, y, u):
         super().__init__(model, y, u)
         
         nxy = model.nx + model.ny
-        n_tril_xy = nxy * (nxy + 1) // 2
+        ntxy = nxy * (nxy + 1) // 2
         
         # Register decision variables
-        self.add_decision('sRp_tril', model.n_tril_y)
-        self.add_decision('sPp_tril', model.n_tril_x)
-        self.add_decision('sPc_tril', model.n_tril_x)
-        self.add_decision('sQ_tril', model.n_tril_x)
-        self.add_decision('sR_tril', model.n_tril_y)
-        self.add_decision('KsRp', (model.nx, model.ny))
-        self.add_decision('pred_orth', (2*model.nx, model.nx))
+        self.add_decision('sRp_tril', model.nty)
+        self.add_decision('sPp_tril', model.ntx)
+        self.add_decision('sPc_tril', model.ntx)
+        self.add_decision('sQ_tril', model.ntx)
+        self.add_decision('sR_tril', model.nty)
+        self.add_decision('Kn', (model.nx, model.ny))
+        self.add_decision('pred_orth', (model.nx, 2*model.nx))
         self.add_decision('corr_orth', (nxy, nxy))
         
         # Register constraint functions
-        self.add_constraint(model.pred_orthogonality, model.n_tril_x)
-        self.add_constraint(model.corr_orthogonality, n_tril_xy)
-        self.add_constraint(model.pred_cov, (2*model.nx, model.nx))
+        self.add_constraint(model.pred_orthogonality, model.ntx)
+        self.add_constraint(model.corr_orthogonality, ntxy)
+        self.add_constraint(model.pred_cov, (model.nx, 2*model.nx))
         self.add_constraint(model.corr_cov, (nxy, nxy))
-        self.add_constraint(model.Rp_inverse, model.n_tril_y)
+        self.add_constraint(model.Rp_inverse, model.nty)
         self.add_constraint(model.kalman_gain, (model.nx, model.ny))
 
 
-class NaturalSqrtZOHProblem(NaturalSqrtDTProblem):
+class NaturalSqrtZOHProblem(MaximumLikelihoodDTProblem):
     def __init__(self, model, y, u):
         super().__init__(model, y, u)
         

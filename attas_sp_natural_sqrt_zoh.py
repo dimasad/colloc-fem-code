@@ -56,7 +56,7 @@ if __name__ == '__main__':
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
     var0['L'][:] = np.eye(2)
-    var0['KsRp'][:] = np.eye(2) * 1e-2
+    var0['Kn'][:] = np.eye(2) * 1e-2
     var0['x'][:] = y
     var0['isRp_tril'][symfem.tril_diag(2)] = 100
     var0['sRp_tril'][symfem.tril_diag(2)] = 1e-2
@@ -108,7 +108,7 @@ if __name__ == '__main__':
     var_scale['sPc_tril'][:] = 1e2
     var_scale['sQ_tril'][:] = 1e2
     var_scale['sR_tril'][:] = 1e2
-    var_scale['KsRp'][:] = 1e2
+    var_scale['Kn'][:] = 1e2
     var_scale['Qc'][:] = 1e3
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     C = opt['C']
     D = opt['D']
     L = opt['L']
-    KsRp = opt['KsRp']
+    Kn = opt['Kn']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']
     corr_orth = opt['corr_orth']
