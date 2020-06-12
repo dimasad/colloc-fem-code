@@ -38,18 +38,45 @@ class BoundADFunction:
     def __call__(self, *args, **kwargs):
         return self.adfun(self.model, *args, **kwargs)
     
+    def hess_filter(self, dec_shapes=None, out_shape=None):
+        filt_name = f'_{self.__name__}_hess_filter'
+        try:
+            return getattr(self.model, filt_name)
+        except AttributeError:
+            assert dec_shapes is not None
+            assert out_shape is not None
+            
+            hess_filter = {}
+            adfun = self.adfun
+            wrt_seq = adfun.hessian
+            ind_base = adfun._sparse_deriv_ind(wrt_seq, dec_shapes, out_shape)
+            for wrt, ind in ind_base.items():
+                if len(wrt) == 2 and wrt[0] == wrt[1]:
+                    hess_filter[wrt] = ind[0] > ind[1]
+            setattr(self.model, filt_name, hess_filter)
+            return hess_filter
+    
     def hess_nnz(self, dec_shapes, out_shape):
         adfun = self.adfun
-        return adfun._sparse_deriv_nnz(adfun.hessian, dec_shapes, out_shape)
+        wrt_seq = adfun.hessian
+        filter = self.hess_filter(dec_shapes, out_shape)
+        return adfun._sparse_deriv_nnz(wrt_seq, dec_shapes, out_shape, filter)
     
     def hess_ind(self, dec_shapes, out_shape):
         adfun = self.adfun
-        return adfun._sparse_deriv_ind(adfun.hessian, dec_shapes, out_shape)
+        wrt_seq = adfun.hessian
+        filter = self.hess_filter(dec_shapes, out_shape)
+        return adfun._sparse_deriv_ind(wrt_seq, dec_shapes, out_shape, filter)
 
     def hess_val(self, *args, **kwargs):
         adfun = self.adfun
+        model = self.model
         wrt_seq = adfun.hessian
-        return adfun._sparse_deriv_val(wrt_seq, self.model, *args, **kwargs)
+        
+        # The filter must be built by a previous call to hess_ind or hess_nnz
+        filter = self.hess_filter()
+        
+        return adfun._sparse_deriv_val(wrt_seq, model, args, kwargs, filter)
 
 
 class BoundADConstraint(BoundADFunction):
@@ -66,7 +93,7 @@ class BoundADConstraint(BoundADFunction):
     def jac_val(self, *args, **kwargs):
         adfun = self.adfun
         d1 = adfun.first_derivatives
-        return adfun._sparse_deriv_val(d1, *args, **kwargs)
+        return adfun._sparse_deriv_val(d1, args, kwargs)
 
 
 class BoundADObjective(BoundADFunction):
@@ -242,7 +269,7 @@ class ADFunction:
             wrt0_shape = dec_shapes[wrt0]
             wrt0_ext, wrt0_core = self._split_shape(wrt0_shape, wrt0)
             rem_core = self._deriv_core_shape(wrt_rem, dec_shapes, out_shape)
-            return wrt0_core + rem_core
+            return rem_core + wrt0_core
     
     def _deriv_core_ind(self, wrt, dec_shapes, out_shape):
         if len(wrt) == 0:
@@ -261,16 +288,19 @@ class ADFunction:
             core_ind.insert(0, wrt0_ind)
             return core_ind
     
-    def _sparse_deriv_nnz(self, wrt_seq, dec_shapes, out_shape):
+    def _sparse_deriv_nnz(self, wrt_seq, dec_shapes, out_shape, filter={}):
         nnz = 0
         out_ext, out_core = self._split_shape(out_shape)
         ext_sz = shape_size(out_ext)
         for wrt in wrt_seq:
-            deriv_core = self._deriv_core_shape(wrt, dec_shapes, out_shape)
-            nnz += shape_size(deriv_core) * ext_sz
+            if wrt in filter:
+                nnz += filter[wrt].sum()
+            else:
+                deriv_core = self._deriv_core_shape(wrt, dec_shapes, out_shape)
+                nnz += shape_size(deriv_core) * ext_sz
         return nnz
     
-    def _sparse_deriv_ind(self, wrt_seq, dec_shapes, out_shape):
+    def _sparse_deriv_ind(self, wrt_seq, dec_shapes, out_shape, filter={}):
         out_ext, out_core = self._split_shape(out_shape)
         core_out_sz = shape_size(out_core)
         
@@ -285,22 +315,24 @@ class ADFunction:
                 
                 wrt_offs = ndim_range(wrt_ext) * wrt_core_sz
                 wrt_offs = onp.broadcast_to(wrt_offs, out_ext)
-                ind.append(wrt_ind + wrt_offs[..., None])
+                ind.append((wrt_ind + wrt_offs[..., None]).ravel())
             
             # Extend the output indices
             out_ind = base_ind[-1]
             out_offs = ndim_range(out_ext) * core_out_sz
-            ind.append(out_ind + out_offs[..., None])
+            ind.append((out_ind + out_offs[..., None]).ravel())
             
             # Save in dictionary
-            ret[wrt] = onp.array(ind)
+            selected = filter.get(wrt, slice(None))
+            ret[wrt] = onp.array(ind)[:, selected]
         return ret
-
-    def _sparse_deriv_val(self, wrt_seq, *args, **kwargs):
+    
+    def _sparse_deriv_val(self, wrt_seq, args, kwargs, filter={}):
         ret = collections.OrderedDict()
         for wrt in wrt_seq:
             deriv = self.derivatives[wrt]
-            ret[wrt] = deriv(*args, **kwargs)
+            selected = filter.get(wrt, slice(None))
+            ret[wrt] = deriv(*args, **kwargs).ravel()[selected]
         return ret
 
 
