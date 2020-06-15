@@ -191,36 +191,53 @@ class ZOHDynamicsModel(InnovationDTModel):
         self.add_constraint('discretize_AB')
     
     def discretize_AB(self, A, B, Ac, Bc, dt):
-        z = np.zeros((self.nu, self.nx + self.nu))
-        F = np.block([[Ac, Bc], [z]]) * dt
-        eF = expm_taylor(F, self.expm_order)
-        return eF[:self.nx] - np.c_[A, B]
+        A_resid = A - expm_taylor(Ac*dt, self.expm_order)
+        
+        term = dt * Bc
+        B_sum = term
+        for k in range(2, self.expm_order + 1):
+            term = dt / k * Ac @ term
+            B_sum = B_sum + term
+        B_resid = B - B_sum 
+        return np.c_[A_resid, B_resid]
 
 
 class DiscretizedNoiseModel(MaximumLikelihoodDTModel):
     
-    expm_order = 3
+    noise_disc_order = 1
     
     def __init__(self, nx, nu, ny):
         super().__init__(nx, nu, ny)
         
         # Define additional decision variables
         v = self.variables
-        v['dt'] = 'dt'
-        v['Ac'] = [[f'Ac{i}_{j}' for j in range(nx)] for i in range(nx)]
-        v['Bc'] = [[f'Bc{i}_{j}' for j in range(nu)] for i in range(nx)]
-        v['Qc'] = [[f'Qc{i}_{j}' for j in range(nx)] for i in range(nx)]
-        self.decision.update({'Ac', 'Bc', 'Qc'})
+        v['sQc_tril'] = [f'sQc{i}_{j}' for i,j in tril_ind(nx)]
+        if 'Ac' not in v:
+            v['Ac'] = [[f'Ac{i}_{j}' for j in range(nx)] for i in range(nx)]
+        if 'dt' not in v:
+            v['dt'] = 'dt'
+        self.decision.update({'Ac', 'sQc_tril'})
         
-        # Register additional constraints        
+        # Register additional constraints
         self.add_constraint('discretize_Q')
     
-    def discretize_Q(self, A, Ac, sQ_tril, Qc, dt):
+    def discretize_Q(self, Ac, sQ_tril, sQc_tril, dt):
+        fact = scipy.special.factorial
+        
         sQ = tril_mat(sQ_tril)
-        z = np.zeros((self.nx, self.nx))
-        F = np.block([[-Ac, Qc], [z, Ac.T]]) * dt
-        eF = expm_taylor(F, self.expm_order)
-        return A @ eF[:self.nx, self.nx:] - sQ @ sQ.T
+        sQc = tril_mat(sQc_tril)
+        Q = sQ @ sQ.T
+        Qc = sQc @ sQc.T
+        
+        Q_sum = np.zeros_like(sQ)
+        for j in range(self.noise_disc_order + 1):
+            for k in range(self.noise_disc_order + 1):
+                Acj = np.linalg.matrix_power(Ac, j)
+                Ack = np.linalg.matrix_power(Ac, k)
+                scal = dt **(j+k+1) / (j+k+1) / fact(j) / fact(k)
+                Q_sum += scal * Acj @ Qc @ Ack.T
+        resid = Q_sum - Q
+        return [resid[i] for i in tril_ind(self.nx)]
 
 
 def tril_ind(n):

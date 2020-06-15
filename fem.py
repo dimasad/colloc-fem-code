@@ -109,7 +109,7 @@ class MaximumLikelihoodDTProblem(InnovationDTProblem):
         self.add_constraint(model.kalman_gain, (model.nx, model.ny))
 
 
-class NaturalSqrtZOHProblem(MaximumLikelihoodDTProblem):
+class ZOHDynamicsProblem(InnovationDTProblem):
     def __init__(self, model, y, u):
         super().__init__(model, y, u)
         
@@ -119,11 +119,30 @@ class NaturalSqrtZOHProblem(MaximumLikelihoodDTProblem):
         # Register decision variables
         self.add_decision('Ac', (nx, nx))
         self.add_decision('Bc', (nx, nu))
-        self.add_decision('Qc', (nx, nx))
-
+        
         # Register constraint functions
         self.add_constraint(model.discretize_AB, (nx, nx + nu))
-        self.add_constraint(model.discretize_Q, (nx, nx))
+    
+    def variables(self, dvec):
+        """Get all variables needed to evaluate problem functions."""
+        return {'dt': self.model.dt, **super().variables(dvec)}
+
+
+class DiscretizedNoiseProblem(MaximumLikelihoodDTProblem):
+    def __init__(self, model, y, u):
+        super().__init__(model, y, u)
+        
+        nx = model.nx
+        nu = model.nu
+        ntx = nx * (nx + 1) // 2
+        
+        # Register decision variables
+        self.add_decision('sQc_tril', model.ntx)
+        if 'Ac' not in self.decision:
+            self.add_decision('Ac', (nx, nx))
+        
+        # Register constraint functions
+        self.add_constraint(model.discretize_Q, ntx)
     
     def variables(self, dvec):
         """Get all variables needed to evaluate problem functions."""
