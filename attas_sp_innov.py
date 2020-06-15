@@ -89,33 +89,39 @@ if __name__ == '__main__':
     # Equation error method initial guess
     A0, B0, C0, D0 = dt_eem(y, u, y)
     
+    # Previous sample predictor guess
+    x0 = np.vstack((np.zeros(nx), y[:-1]))
+    Rp0 = np.cov(y - x0, rowvar=0)
+    sRp0 = np.linalg.cholesky(Rp0)
+    e0 = np.linalg.solve(sRp0, (y - x0).T).T
+    
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
-    var0['A'][:] = np.eye(2)
+    var0['A'][:] = np.eye(nx, nx)
     var0['B'][:] = np.zeros((2,1))
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    var0['L'][:] = np.eye(nx, nx) * 1e-2
-    var0['x'][:] = y - y[0]
-    var0['ybias'][:] = y[0]
-    var0['isRp_tril'][symfem.tril_diag(2)] = 1e2
+    # var0['L'][:] = sRp0
+    var0['x'][:] = x0
+    var0['e'][:] = e0
+    var0['sRp_tril'][:] = sRp0[np.tril_indices(nx)]
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
     dec_L, dec_U = dec_bounds
     var_L = problem.variables(dec_L)
     var_U = problem.variables(dec_U)
-    var_L['isRp_tril'][symfem.tril_diag(2)] = 1e-7
-    #var_U['isRp_tril'][symfem.tril_diag(2)] = 1e5
+    var_L['sRp_tril'][symfem.tril_diag(2)] = 1e-7
+    #var_U['sRp_tril'][symfem.tril_diag(2)] = 1e5
+    #var_L['sRp_tril'][~symfem.tril_diag(2)] = 0
+    #var_U['sRp_tril'][~symfem.tril_diag(2)] = 0
     var_L['C'][:] = np.eye(2)
     var_U['C'][:] = np.eye(2)
     var_L['D'][:] = np.zeros((2,1))
     var_U['D'][:] = np.zeros((2,1))
     #var_L['L'][:] = np.zeros((2,2))
     #var_U['L'][:] = np.zeros((2,2))
-    #var_L['isRp_tril'][~symfem.tril_diag(2)] = 0
-    #var_U['isRp_tril'][~symfem.tril_diag(2)] = 0
     
     # Define bounds for constraints
     constr_bounds = np.zeros((2, problem.ncons))
@@ -125,15 +131,16 @@ if __name__ == '__main__':
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['innovation'][:] = 1
+    var_constr_scale['innovation'][:] = 1e2
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
-    var_scale['isRp_tril'][:] = 1e-2
+    var_scale['sRp_tril'][:] = 1e2
     var_scale['L'][:] = 1e2
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
+        nlp.add_num_option('ma57_pre_alloc', 25.0)
         nlp.add_num_option('tol', 1e-6)
         nlp.add_int_option('max_iter', 1000)
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
@@ -147,6 +154,6 @@ if __name__ == '__main__':
     D = opt['D']
     L = opt['L']
     ybias = opt['ybias']
-    isRp = symfem.tril_mat(opt['isRp_tril'])
+    sRp = symfem.tril_mat(opt['sRp_tril'])
     yopt = xopt @ C.T + u @ D.T + ybias
     eopt = opt['e']

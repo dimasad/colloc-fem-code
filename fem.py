@@ -34,7 +34,7 @@ class InnovationDTProblem(optim.Problem):
         
         # Register decision variables
         self.add_decision('ybias', model.ny)
-        self.add_decision('isRp_tril', model.nty)
+        self.add_decision('sRp_tril', model.nty)
         self.add_decision('A', (model.nx, model.nx))
         self.add_decision('B', (model.nx, model.nu))
         self.add_decision('C', (model.ny, model.nx))
@@ -93,7 +93,6 @@ class MaximumLikelihoodDTProblem(InnovationDTProblem):
         ntxy = nxy * (nxy + 1) // 2
         
         # Register decision variables
-        self.add_decision('sRp_tril', model.nty)
         self.add_decision('sPp_tril', model.ntx)
         self.add_decision('sPc_tril', model.ntx)
         self.add_decision('sQ_tril', model.ntx)
@@ -107,7 +106,6 @@ class MaximumLikelihoodDTProblem(InnovationDTProblem):
         self.add_constraint(model.corr_orthogonality, ntxy)
         self.add_constraint(model.pred_cov, (model.nx, 2*model.nx))
         self.add_constraint(model.corr_cov, (nxy, nxy))
-        self.add_constraint(model.Rp_inverse, model.nty)
         self.add_constraint(model.kalman_gain, (model.nx, model.ny))
 
 

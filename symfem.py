@@ -34,7 +34,7 @@ class InnovationDTModel(symoptim.Model):
         v['C'] = [[f'C{i}_{j}' for j in range(nx)] for i in range(ny)]
         v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]        
         v['L'] = [[f'L{i}_{j}' for j in range(ny)] for i in range(nx)]
-        v['isRp_tril'] = [f'isRp{i}_{j}' for i,j in tril_ind(ny)]
+        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
         self.decision.update({k for k in v if k != 'self'})
 
         # Define auxiliary variables
@@ -52,22 +52,22 @@ class InnovationDTModel(symoptim.Model):
         xpred = A @ xprev + B @ uprev + L @ eprev
         return xnext - xpred
     
-    def innovation(self, y, e, x, u, C, D, ybias, isRp_tril):
+    def innovation(self, y, e, x, u, C, D, ybias, sRp_tril):
         """Model normalized innovation constraint."""
-        isRp = tril_mat(isRp_tril)
+        sRp = tril_mat(sRp_tril)
         ymodel = C @ x + D @ u + ybias
-        return isRp @ (y - ymodel) - e
+        return y - ymodel - sRp @ e
     
-    def loglikelihood(self, e, isRp_tril):
+    def loglikelihood(self, e, sRp_tril):
         """Log-likelihood function."""
-        isRp = tril_mat(isRp_tril)
-        log_det_isRp = sum(sympy.log(d) for d in isRp.diagonal())
-        return -0.5 * (e ** 2).sum() + log_det_isRp
+        sRp = tril_mat(sRp_tril)
+        log_det_sRp = sum(sympy.log(d) for d in sRp.diagonal())
+        return -0.5 * (e ** 2).sum() - log_det_sRp
     
     @property
     def generate_assignments(self):
         gen = {'nx': self.nx, 'nu': self.nu, 'ny': self.ny, 
-               'nty': len(self.variables['isRp_tril']),
+               'nty': len(self.variables['sRp_tril']),
                **getattr(super(), 'generate_assignments', {})}
         return gen
 
@@ -117,7 +117,6 @@ class MaximumLikelihoodDTModel(InnovationDTModel):
         v['Kn'] = [[f'Kn{i}_{j}' for j in range(ny)] for i in range(nx)]
         v['sQ_tril'] = [f'sQ{i}_{j}' for i,j in tril_ind(nx)]
         v['sR_tril'] = [f'sR{i}_{j}' for i,j in tril_ind(ny)]
-        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
         v['sPp_tril'] = [f'sPp{i}_{j}' for i,j in tril_ind(nx)]
         v['sPc_tril'] = [f'sPc{i}_{j}' for i,j in tril_ind(nx)]
         po = [[f'pred_orth{i}_{j}' for j in range(2*nx)] for i in range(nx)]
@@ -133,7 +132,6 @@ class MaximumLikelihoodDTModel(InnovationDTModel):
         self.add_constraint('corr_orthogonality')
         self.add_constraint('pred_cov')
         self.add_constraint('corr_cov')
-        self.add_constraint('Rp_inverse')
         self.add_constraint('kalman_gain')
     
     def pred_orthogonality(self, pred_orth):
@@ -167,14 +165,7 @@ class MaximumLikelihoodDTModel(InnovationDTModel):
     
     def kalman_gain(self, L, Kn, A):
         return L - A @ Kn
-    
-    def Rp_inverse(self, isRp_tril, sRp_tril):
-        isRp = tril_mat(isRp_tril)
-        sRp = tril_mat(sRp_tril)
-        I = np.eye(self.ny)
-        resid = sRp @ isRp - I
-        return [resid[i] for i in tril_ind(self.ny)]
-    
+        
     @property
     def generate_assignments(self):
         gen = {'ntx': len(self.variables['sPp_tril']),
@@ -182,10 +173,34 @@ class MaximumLikelihoodDTModel(InnovationDTModel):
         return gen
 
 
-class NaturalSqrtZOHModel(MaximumLikelihoodDTModel):
-
+class ZOHDynamicsModel(InnovationDTModel):
+    
     expm_order = 3
+    
+    def __init__(self, nx, nu, ny):
+        super().__init__(nx, nu, ny)
+        
+        # Define additional decision variables
+        v = self.variables
+        v['dt'] = 'dt'
+        v['Ac'] = [[f'Ac{i}_{j}' for j in range(nx)] for i in range(nx)]
+        v['Bc'] = [[f'Bc{i}_{j}' for j in range(nu)] for i in range(nx)]
+        self.decision.update({'Ac', 'Bc'})
+        
+        # Register additional constraints
+        self.add_constraint('discretize_AB')
+    
+    def discretize_AB(self, A, B, Ac, Bc, dt):
+        z = np.zeros((self.nu, self.nx + self.nu))
+        F = np.block([[Ac, Bc], [z]]) * dt
+        eF = expm_taylor(F, self.expm_order)
+        return eF[:self.nx] - np.c_[A, B]
 
+
+class DiscretizedNoiseModel(MaximumLikelihoodDTModel):
+    
+    expm_order = 3
+    
     def __init__(self, nx, nu, ny):
         super().__init__(nx, nu, ny)
         
@@ -198,15 +213,8 @@ class NaturalSqrtZOHModel(MaximumLikelihoodDTModel):
         self.decision.update({'Ac', 'Bc', 'Qc'})
         
         # Register additional constraints        
-        self.add_constraint('discretize_AB')
         self.add_constraint('discretize_Q')
     
-    def discretize_AB(self, A, B, Ac, Bc, dt):
-        z = np.zeros((self.nu, self.nx + self.nu))
-        F = np.block([[Ac, Bc], [z]]) * dt
-        eF = expm_taylor(F, self.expm_order)
-        return eF[:self.nx] - np.c_[A, B]
-
     def discretize_Q(self, A, Ac, sQ_tril, Qc, dt):
         sQ = tril_mat(sQ_tril)
         z = np.zeros((self.nx, self.nx))
