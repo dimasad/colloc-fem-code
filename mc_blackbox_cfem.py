@@ -36,7 +36,46 @@ def load_data(datafile):
     # Retrieve data
     u = data['u']
     y = data['y']
-    return u, y
+    
+    N = len(y)
+    ue = u[N//2:]
+    ye = y[N//2:]
+    uv = u[:N//2]
+    yv = y[:N//2]
+    return uv, yv, ue, ye
+
+
+def load_estimates(datafile):
+    estfile = datafile.parent / ('estim_' + datafile.name)
+    return scipy.io.loadmat(estfile)
+
+
+def predict(mdl, y, u, x0=None):
+    A = mdl['A']
+    B = mdl['B']
+    C = mdl['C']
+    D = mdl['D']
+    Lun = mdl['Lun']
+    
+    nx = len(A)
+    N = len(y)
+    
+    if x0 is None:
+        x0 = np.zeros(nx)
+    x = np.tile(x0, (N, 1))
+    eun = np.empty_like(y)
+    
+    for k in range(N):
+        eun[k] = y[k] - C @ x[k] - D @ u[k]
+        if k+1 < N:
+            x[k+1] = A @ x[k] + B @ u[k] + Lun @ eun[k]
+    
+    Rp = 1/N * eun.T @ eun
+    sRp = np.linalg.cholesky(Rp)
+    
+
+def estimate(datafile):
+    pass
 
 
 def get_model(config):
@@ -71,5 +110,11 @@ if __name__ == '__main__':
     config = scipy.io.loadmat(edir / 'config.mat', squeeze_me=True)
     
     model = get_model(config)
-    data_files = sorted(edir.glob('exp*.mat'))
+    datafiles = sorted(edir.glob('exp*.mat'))
     
+    for datafile in datafiles:
+        uv, yv, ue, ye = load_data(datafile)
+        in_prob = fem.InnovationDTProblem(model, ye, ue)
+        ml_prob = MLProblem(model, ye, ue)
+        
+        raise SystemExit

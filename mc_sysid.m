@@ -48,5 +48,5 @@ s.A = sys.A;
 s.B = sys.B;
 s.C = sys.C;
 s.D = sys.D;
-s.L = sys.K;
+s.Lun = sys.K;
 end
