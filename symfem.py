@@ -232,10 +232,18 @@ class DiscretizedNoiseModel(MaximumLikelihoodDTModel):
         Q_sum = np.zeros_like(sQ)
         for j in range(self.noise_disc_order + 1):
             for k in range(self.noise_disc_order + 1):
-                Acj = np.linalg.matrix_power(Ac, j)
-                Ack = np.linalg.matrix_power(Ac, k)
-                scal = dt **(j+k+1) / (j+k+1) / fact(j) / fact(k)
-                Q_sum += scal * Acj @ Qc @ Ack.T
+                if j < k:
+                    Acj = np.linalg.matrix_power(Ac, j)
+                    Ack = np.linalg.matrix_power(Ac, k)
+                    scal = dt **(j+k+1) / (j+k+1) / fact(j) / fact(k)
+                    term = scal * Acj @ Qc @ Ack.T
+                    Q_sum += term + term.T
+                elif j == k:
+                    Acj = np.linalg.matrix_power(Ac, j)
+                    scal = dt **(j+k+1) / (j+k+1) / fact(j) ** 2
+                    term = scal * Acj @ Qc @ Acj.T
+                    Q_sum += term
+                    
         resid = Q_sum - Q
         return [resid[i] for i in tril_ind(self.nx)]
 

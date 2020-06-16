@@ -121,7 +121,7 @@ if __name__ == '__main__':
     var_constr_scale['pred_cov'][:] = 100
     var_constr_scale['corr_cov'][:] = 100
     var_constr_scale['kalman_gain'][:] = 100 
-    var_constr_scale['discretize_Q'][:] = 1e3
+    var_constr_scale['discretize_Q'][:] = 1e4
    
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
