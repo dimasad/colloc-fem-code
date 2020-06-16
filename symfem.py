@@ -24,16 +24,16 @@ class InnovationDTModel(symoptim.Model):
         # Define decision variables
         v = self.variables
         v['x'] = [f'x{i}' for i in range(nx)]
-        v['e'] = [f'e{i}' for i in range(ny)]
+        v['en'] = [f'en{i}' for i in range(ny)]
         v['xnext'] = [f'xnext{i}' for i in range(nx)]
         v['xprev'] = [f'xprev{i}' for i in range(nx)]
-        v['eprev'] = [f'eprev{i}' for i in range(ny)]
+        v['enprev'] = [f'enprev{i}' for i in range(ny)]
         v['ybias'] = [f'ybias{i}' for i in range(ny)]
         v['A'] = [[f'A{i}_{j}' for j in range(nx)] for i in range(nx)]
         v['B'] = [[f'B{i}_{j}' for j in range(nu)] for i in range(nx)]
         v['C'] = [[f'C{i}_{j}' for j in range(nx)] for i in range(ny)]
         v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]        
-        v['L'] = [[f'L{i}_{j}' for j in range(ny)] for i in range(nx)]
+        v['Ln'] = [[f'Ln{i}_{j}' for j in range(ny)] for i in range(nx)]
         v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
         self.decision.update({k for k in v if k != 'self'})
 
@@ -47,22 +47,22 @@ class InnovationDTModel(symoptim.Model):
         self.add_constraint('innovation')
         self.add_objective('loglikelihood')
     
-    def dynamics(self, xnext, xprev, uprev, eprev, A, B, L):
+    def dynamics(self, xnext, xprev, uprev, enprev, A, B, Ln):
         """Model dynamics defects."""
-        xpred = A @ xprev + B @ uprev + L @ eprev
+        xpred = A @ xprev + B @ uprev + Ln @ enprev
         return xnext - xpred
     
-    def innovation(self, y, e, x, u, C, D, ybias, sRp_tril):
+    def innovation(self, y, en, x, u, C, D, ybias, sRp_tril):
         """Model normalized innovation constraint."""
         sRp = tril_mat(sRp_tril)
         ymodel = C @ x + D @ u + ybias
-        return y - ymodel - sRp @ e
+        return y - ymodel - sRp @ en
     
-    def loglikelihood(self, e, sRp_tril):
+    def loglikelihood(self, en, sRp_tril):
         """Log-likelihood function."""
         sRp = tril_mat(sRp_tril)
         log_det_sRp = sum(sympy.log(d) for d in sRp.diagonal())
-        return -0.5 * (e ** 2).sum() - log_det_sRp
+        return -0.5 * (en ** 2).sum() - log_det_sRp
     
     @property
     def generate_assignments(self):
@@ -163,8 +163,8 @@ class MaximumLikelihoodDTModel(InnovationDTModel):
                        [zeros, sPp]])
         return M1 @ corr_orth - M2
     
-    def kalman_gain(self, L, Kn, A):
-        return L - A @ Kn
+    def kalman_gain(self, Ln, Kn, A):
+        return Ln - A @ Kn
         
     @property
     def generate_assignments(self):

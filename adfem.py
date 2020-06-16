@@ -392,15 +392,15 @@ class ADModel:
 class InnovationDTModel(ADModel):
     
     decision = {
-        'x', 'e', 'xnext', 'xprev', 'eprev', 'ybias', 
-        'A', 'B', 'C', 'D', 'L', 'isRp_tril'
+        'x', 'en', 'xnext', 'xprev', 'enprev', 'ybias', 
+        'A', 'B', 'C', 'D', 'Ln', 'isRp_tril'
     }
     """Decision variables of the optimization problem."""
     
     vectorized = dict(
-        x='nx', e='ny', xnext='nx', xprev='nx', eprev='ny',
+        x='nx', en='ny', xnext='nx', xprev='nx', enprev='ny',
         u='nu', y='ny', uprev='nu',
-        A='nx,nx', B='nx,nu', C='ny,nx', D='ny,nu', L='nx,ny', ybias='ny',
+        A='nx,nx', B='nx,nu', C='ny,nx', D='ny,nu', Ln='nx,ny', ybias='ny',
         isRp_tril='nty',
     )
     """Decision variables of the optimization problem."""
@@ -415,29 +415,29 @@ class InnovationDTModel(ADModel):
         self.ny = ny
         """Number of outputs."""
     
-    @hessian(('xprev', 'A'), ('eprev', 'L'))
+    @hessian(('xprev', 'A'), ('enprev', 'Ln'))
     @constraint('nx')
-    def dynamics(self, xnext, xprev, uprev, eprev, A, B, L):
+    def dynamics(self, xnext, xprev, uprev, enprev, A, B, Ln):
         """Model dynamics defects."""
-        xpred = A @ xprev + B @ uprev + L @ eprev
+        xpred = A @ xprev + B @ uprev + Ln @ enprev
         return xnext - xpred
     
     @hessian(('x', 'C'), ('x', 'isRp_tril'), ('C', 'isRp_tril'), 
              ('D', 'isRp_tril'), ('ybias', 'isRp_tril'))
     @constraint('ny')
-    def innovation(self, y, e, x, u, C, D, ybias, isRp_tril):
+    def innovation(self, y, en, x, u, C, D, ybias, isRp_tril):
         """Model normalized innovation constraint."""
         ymodel = C @ x + D @ u + ybias
         isRp = tril_mat(isRp_tril)
-        return isRp @ (y - ymodel) - e
+        return isRp @ (y - ymodel) - en
     
-    @hessian(('e', 'e'), ('isRp_tril', 'isRp_tril'))
+    @hessian(('en', 'en'), ('isRp_tril', 'isRp_tril'))
     @objective
-    def L(self, e, isRp_tril):
+    def Ln(self, en, isRp_tril):
         """Measurement log-likelihood."""
         isRp = tril_mat(isRp_tril)
         log_det_isRp = jnp.log(isRp.diagonal()).sum()
-        return -0.5 * (e ** 2).sum() + log_det_isRp
+        return -0.5 * (en ** 2).sum() + log_det_isRp
 
 
 def tril_mat(tril_elem):

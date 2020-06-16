@@ -39,16 +39,16 @@ class InnovationDTProblem(optim.Problem):
         self.add_decision('B', (model.nx, model.nu))
         self.add_decision('C', (model.ny, model.nx))
         self.add_decision('D', (model.ny, model.nu))
-        self.add_decision('L', (model.nx, model.ny))
+        self.add_decision('Ln', (model.nx, model.ny))
         x = self.add_decision('x', (N, model.nx))
-        e = self.add_decision('e', (N, model.ny))
+        en = self.add_decision('en', (N, model.ny))
         
         # Define and register dependent variables
         xprev = optim.Decision((N-1, model.nx), x.offset)
-        eprev = optim.Decision((N-1, model.ny), e.offset)
+        enprev = optim.Decision((N-1, model.ny), en.offset)
         xnext = optim.Decision((N-1, model.nx), x.offset + model.nx)
         self.add_dependent_variable('xprev', xprev)
-        self.add_dependent_variable('eprev', eprev)
+        self.add_dependent_variable('enprev', enprev)
         self.add_dependent_variable('xnext', xnext)
     
         # Register problem functions

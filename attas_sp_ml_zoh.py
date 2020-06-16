@@ -70,7 +70,7 @@ if __name__ == '__main__':
     x0 = np.vstack((np.zeros(nx), y[:-1]))
     Rp0 = np.cov(y - x0, rowvar=0)
     sRp0 = np.linalg.cholesky(Rp0)
-    e0 = np.linalg.solve(sRp0, (y - x0).T).T
+    en0 = np.linalg.solve(sRp0, (y - x0).T).T
     
     # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
@@ -79,9 +79,9 @@ if __name__ == '__main__':
     var0['B'][:] = np.zeros((2,1))
     var0['C'][:] = np.eye(2)
     var0['D'][:] = np.zeros((2,1))
-    # var0['L'][:] = sRp0
+    # var0['Ln'][:] = sRp0
     var0['x'][:] = x0
-    var0['e'][:] = e0
+    var0['en'][:] = en0
     var0['sRp_tril'][:] = sRp0[np.tril_indices(nx)]
     var0['sQ_tril'][symfem.tril_diag(2)] = 1e-2
     var0['sR_tril'][symfem.tril_diag(2)] = 1e-2
@@ -122,7 +122,7 @@ if __name__ == '__main__':
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
-    var_scale['L'][:] = 1e2
+    var_scale['Ln'][:] = 1e2
     var_scale['sRp_tril'][:] = 1e2
     var_scale['sPp_tril'][:] = 1e2
     var_scale['sPc_tril'][:] = 1e2
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     B = opt['B']
     C = opt['C']
     D = opt['D']
-    L = opt['L']
+    Ln = opt['Ln']
     Kn = opt['Kn']
     ybias = opt['ybias']
     pred_orth = opt['pred_orth']
@@ -157,7 +157,7 @@ if __name__ == '__main__':
     sQ = symfem.tril_mat(opt['sQ_tril'])
     sR = symfem.tril_mat(opt['sR_tril'])
     yopt = xopt @ C.T + u @ D.T + ybias
-    eopt = opt['e']
+    enopt = opt['en']
     
     Pc = sPc @ sPc.T
     Pp = sPp @ sPp.T
