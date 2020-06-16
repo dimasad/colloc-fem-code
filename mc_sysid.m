@@ -2,47 +2,51 @@
 
 data_dir = strcat('data', filesep, 'mc_experim');
 config = load([data_dir, filesep, 'config']);
+data_files = dir(strcat(data_dir, filesep, 'exp*.mat'));
+nx = config.nx;
 
 %% Loop through all experiments
-
-for e = dir(strcat(data_dir, filesep, 'exp*.mat'))'
+for data_file = data_files'
+    disp(data_file.name);
+    
     %% Load data
-    data = load([e.folder, filesep, e.name]);
+    data = load([data_file.folder, filesep, data_file.name]);
     d = iddata(data.y, data.u);
     dv = d(1:end/2);
     de = d(end/2+1:end);
     
-    %% Estimate and get balanced realization
-    s1 = n4sid(de, nx);
-    s2 = ssest(de, nx);
-    [syseb, gram, T] = balreal(s1);
+    %% Estimate
+    s1opt = n4sidOptions();
+    s1 = n4sid(de, nx, 'Feedthrough', true, s1opt);
+    s2opt = ssestOptions();
+    s2 = ssest(de, nx, 'Feedthrough', true, 'Ts', de.Ts, s2opt);    
     
-    A = syseb.a;
-    B = syseb.b;
-    C = syseb.c;
-    D = syseb.d;
-    L = T * s1.k;
-
-    %% Run predictor
-    xpred = zeros(N, nx);
-    epred = zeros(N, ny);
-    for i=1:N-1
-        ui = u(i, :)';
-        xi = xpred(i, :)';
-        yi = y(i, :)';
-        ei = yi - C*xi - D*ui;
-        xnext = A*xi + B*ui + L*ei;
-        
-        xpred(i+1, :) = xnext';
-        epred(i, :) = ei';
-    end
-    epred(N,:) = y(N, :) - xpred(N,:) * C' - u(N,:)*D';
+    %% Validate with complementary data (dv)
+    copt = compareOptions('InitialCondition', 'z');
+    [~, fit] = compare(dv, s1, s2, copt);
     
-    %% Get innovation covariance and normalized innovations
-    Rp = cov(epred);
-    sRp = chol(Rp)';
-    isRp = inv(sRp);
+    %% Get balanced realization
+    [s1bal, gram, T] = balreal(s1);
+    s1bal = idss(s1bal);
+    s1bal.K = T * s1.K;    
     
-    en = (sRp \ epred')';
     %% Save
+    sys = [sys_struct(s1), sys_struct(s2)];
+    sys(1).fit = fit{1};
+    sys(2).fit = fit{2};
+    
+    guess = sys_struct(s1bal);
+    guess.gram = gram;
+    
+    est_file = [data_dir, filesep, 'estim_', data_file.name];
+    save(est_file, 'guess', 'sys');
+end
+
+function s = sys_struct(sys)
+s = struct;
+s.A = sys.A;
+s.B = sys.B;
+s.C = sys.C;
+s.D = sys.D;
+s.L = sys.K;
 end
