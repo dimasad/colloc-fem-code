@@ -1,6 +1,5 @@
 # Ignore generated code
-NaturalSqrtZOHModel_nx*_nu*_ny*.py
-InnovationBalDTModel_nx*_nu*_ny*.py
+Generated*Model_nx*_nu*_ny*.py
 
 # Ignore the data directory
 data/

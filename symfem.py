@@ -157,7 +157,7 @@ class MaximumLikelihoodDTModel(InnovationDTModel):
         sR = tril_mat(sR_tril)
         
         zeros = np.zeros((self.nx, self.ny))
-        M1 = np.block([[sRp,  zeros], 
+        M1 = np.block([[sRp,  zeros.T], 
                        [Kn, sPc]])
         M2 = np.block([[sR,    C @ sPp], 
                        [zeros, sPp]])
