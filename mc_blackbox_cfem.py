@@ -45,7 +45,7 @@ def load_data(datafile):
     return uv, yv, ue, ye
 
 
-def load_estimates(datafile):
+def load_matlab_estimates(datafile):
     estfile = datafile.parent / ('estim_' + datafile.name)
     return scipy.io.loadmat(estfile)
 
@@ -57,7 +57,7 @@ def predict(mdl, y, u):
     D = mdl['D']
     try:
         L = mdl['L']
-    except KeyError:
+    except (KeyError, ValueError):
         sRp = symfem.tril_mat(mdl['sRp_tril'])
         Ln = mdl['Ln']
         L = Ln @ np.linalg.inv(sRp)
@@ -66,7 +66,7 @@ def predict(mdl, y, u):
     N = len(y)
     try:
         x0 = mdl['x0'].ravel()
-    except KeyError:
+    except (KeyError, ValueError):
         x0 = np.zeros(nx)
     
     x = np.tile(x0, (N, 1))
@@ -79,7 +79,7 @@ def predict(mdl, y, u):
     return x, e
 
 
-def estimate(model, datafile, prob_type='bal'):
+def estimate(model, datafile, prob_type='bal', matlab_est=None):
     uv, yv, ue, ye = load_data(datafile)
     if prob_type == 'ml':
         problem = MLProblem(model, ye, ue)
@@ -88,8 +88,8 @@ def estimate(model, datafile, prob_type='bal'):
     else:
         raise ValueError('Unknown prob_type')
     
-    estimates = load_estimates(datafile)
-    guess = estimates['guess'][0,0]
+    matlab_est = matlab_est or load_matlab_estimates(datafile)
+    guess = matlab_est['guess'][0,0]
     A0 = guess['A']
     B0 = guess['B']
     C0 = guess['C']
@@ -127,16 +127,28 @@ def estimate(model, datafile, prob_type='bal'):
     var0['sW_diag'][:] = np.diag(sW0)
     var0['ctrl_orth'][:] = ctrl_orth0
     var0['obs_orth'][:] = obs_orth0
+    if prob_type == 'ml':
+        var0['sQ_tril'][symfem.tril_diag(nx)] = 1
+        var0['sR_tril'][symfem.tril_diag(ny)] = 1
+        var0['sPp_tril'][symfem.tril_diag(nx)] = 1
+        var0['sPc_tril'][symfem.tril_diag(nx)] = 1
+        var0['pred_orth'][:] = np.eye(nx, 2*nx)
+        var0['corr_orth'][:] = np.eye(nx + ny)
     
     # Define bounds for decision variables
     dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
     dec_L, dec_U = dec_bounds
     var_L = problem.variables(dec_L)
     var_U = problem.variables(dec_U)
-    var_L['sRp_tril'][symfem.tril_diag(ny)] = 1e-6
+    var_L['sRp_tril'][symfem.tril_diag(ny)] = 0
     var_L['sW_diag'][:] = 0
     var_L['ybias'][:] = 0
     var_U['ybias'][:] = 0
+    if prob_type == 'ml':
+        var_L['sPp_tril'][symfem.tril_diag(nx)] = 0
+        var_L['sPc_tril'][symfem.tril_diag(nx)] = 0
+        var_L['sQ_tril'][symfem.tril_diag(nx)] = 0
+        var_L['sR_tril'][symfem.tril_diag(ny)] = 0
     
     # Define bounds for constraints
     constr_bounds = np.zeros((2, problem.ncons))
@@ -149,11 +161,21 @@ def estimate(model, datafile, prob_type='bal'):
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
     var_constr_scale['innovation'][:] = 1
+    if prob_type == 'ml':
+        var_constr_scale['pred_cov'][:] = 10
+        var_constr_scale['corr_cov'][:] = 10
+        var_constr_scale['kalman_gain'][:] = 10
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
-    var_scale['sRp_tril'][:] = 1e2
-    var_scale['Ln'][:] = 1e2
+    var_scale['sRp_tril'][:] = 1e1
+    var_scale['Ln'][:] = 1e1
+    if prob_type == 'ml':
+        var_scale['sPp_tril'][:] = 1e1
+        var_scale['sPc_tril'][:] = 1e1
+        var_scale['sQ_tril'][:] = 1e1
+        var_scale['sR_tril'][:] = 1e1
+        var_scale['Kn'][:] = 1e1
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
         nlp.add_str_option('linear_solver', 'ma57')
@@ -196,7 +218,7 @@ def cmdline_args():
 def fit(e, y):
     from numpy.linalg import norm
     ymean = np.mean(y, axis=0)
-    nrmse = norm(e, axis=0) / norm(yv - ymean, axis=0)
+    nrmse = norm(e, axis=0) / norm(y - ymean, axis=0)
     return 1 - nrmse
 
 
@@ -208,8 +230,32 @@ if __name__ == '__main__':
     model = get_model(config)
     datafiles = sorted(edir.glob('exp*.mat'))
     
+    msefile = edir / 'val_mse.txt'
+    open(msefile, 'w').close()
+
     for datafile in datafiles:
-        optbal = estimate(model, datafile, prob_type='bal')
-        #optml = estimate(model, datafile, prob_type='ml')
+        i = int(datafile.stem[3:])
+        print('*' * 80)
+        print('Experiment #', i, sep='')
+        print('*' * 80)
         
-        raise SystemExit
+        uv, yv, ue, ye = load_data(datafile)
+        matlab_est = load_matlab_estimates(datafile)
+        optbal = estimate(model, datafile, 'bal', matlab_est)
+        optml = estimate(model, datafile, 'ml', matlab_est)
+        
+        savekeys = {'A', 'B', 'C', 'D', 'Ln', 'sRp_tril'}
+        savedata = {
+            'bal': {k:v for k,v in optbal.items() if k in savekeys},
+            'ml': {k:v for k,v in optml.items() if k in savekeys}
+        }
+        np.savez(edir / ('fem_' + datafile.stem), **savedata)
+        
+        xbal, ebal = predict(optbal, yv, uv)
+        xml, eml = predict(optml, yv, uv)
+        esys = [predict(mdl, yv, uv)[1] for mdl in matlab_est['sys'].flat]
+        
+        yvdev = yv - np.mean(yv, 0)
+        mse = [np.mean(e**2) for e in (yv, ebal, eml, *esys)]
+        with open(msefile, 'a') as f:
+            print(i, *mse, sep=', ', file=f)

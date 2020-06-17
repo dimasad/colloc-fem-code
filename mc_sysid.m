@@ -20,11 +20,7 @@ for data_file = data_files'
     s1 = n4sid(de, nx, 'Feedthrough', true, s1opt);
     s2opt = ssestOptions('InitialState', 'estimate');
     s2 = ssest(de, nx, 'Feedthrough', true, 'Ts', de.Ts, s2opt);
-    
-    %% Validate with complementary data (dv)
-    copt = compareOptions('InitialCondition', 'z');
-    [yv, valfit] = compare(dv, s1, s2, 1, copt);
-    
+        
     %% Get balanced realization
     [s1bal, gram, T] = balreal(s1);
     s1bal = idss(s1bal);
@@ -33,11 +29,10 @@ for data_file = data_files'
     
     %% Save
     sys = [sys_struct(s1), sys_struct(s2)];
-    sys(1).valfit = valfit{1};
-    sys(2).valfit = valfit{2};
     
     guess = sys_struct(s1bal);
     guess.gram = gram;
+    guess.x0 = s1bal.x0;
     
     est_file = [data_dir, filesep, 'estim_', data_file.name];
     save(est_file, 'guess', 'sys');
@@ -50,5 +45,4 @@ s.B = sys.B;
 s.C = sys.C;
 s.D = sys.D;
 s.L = sys.K;
-s.x0 = sys.x0;
 end
