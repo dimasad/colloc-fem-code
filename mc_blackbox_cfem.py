@@ -50,33 +50,122 @@ def load_estimates(datafile):
     return scipy.io.loadmat(estfile)
 
 
-def predict(mdl, y, u, x0=None):
+def predict(mdl, y, u):
     A = mdl['A']
     B = mdl['B']
     C = mdl['C']
     D = mdl['D']
-    Lun = mdl['Lun']
+    try:
+        L = mdl['L']
+    except KeyError:
+        sRp = symfem.tril_mat(mdl['sRp_tril'])
+        Ln = mdl['Ln']
+        L = Ln @ np.linalg.inv(sRp)
     
     nx = len(A)
     N = len(y)
-    
-    if x0 is None:
+    try:
+        x0 = mdl['x0'].ravel()
+    except KeyError:
         x0 = np.zeros(nx)
+    
     x = np.tile(x0, (N, 1))
-    eun = np.empty_like(y)
+    e = np.empty_like(y)
     
     for k in range(N):
-        eun[k] = y[k] - C @ x[k] - D @ u[k]
+        e[k] = y[k] - C @ x[k] - D @ u[k]
         if k+1 < N:
-            x[k+1] = A @ x[k] + B @ u[k] + Lun @ eun[k]
-    
-    Rp = 1/N * eun.T @ eun
-    sRp = np.linalg.cholesky(Rp)
-    
+            x[k+1] = A @ x[k] + B @ u[k] + L @ e[k]
+    return x, e
 
-def estimate(datafile):
-    pass
 
+def estimate(model, datafile, prob_type='bal'):
+    uv, yv, ue, ye = load_data(datafile)
+    if prob_type == 'ml':
+        problem = MLProblem(model, ye, ue)
+    elif prob_type == 'bal':
+        problem = fem.BalancedDTProblem(model, ye, ue)
+    else:
+        raise ValueError('Unknown prob_type')
+    
+    estimates = load_estimates(datafile)
+    guess = estimates['guess'][0,0]
+    A0 = guess['A']
+    B0 = guess['B']
+    C0 = guess['C']
+    D0 = guess['D']
+    x0, e0 = predict(guess, ye, ue)
+    Rp0 = 1/len(e0) * e0.T @ e0
+    sRp0 = np.linalg.cholesky(Rp0)
+    en0 = np.linalg.solve(sRp0, e0.T).T
+    W0 = np.diag(guess['gram'].ravel())
+    sW0 = np.sqrt(W0)
+
+    ctrl_bmat = np.c_[A0 @ sW0, B0]
+    q, r = np.linalg.qr(ctrl_bmat.T)
+    ctrl_orth0 = (q * np.diag(np.sign(r))).T
+
+    obs_bmat = np.c_[A0.T @ sW0, C0.T]
+    q, r = np.linalg.qr(obs_bmat.T)
+    obs_orth0 = (q * np.diag(np.sign(r))).T
+    
+    nx = model.nx
+    nu = model.nu
+    ny = model.ny
+    
+    # Define initial guess for decision variables
+    dec0 = np.zeros(problem.ndec)
+    var0 = problem.variables(dec0)
+    var0['A'][:] = A0
+    var0['B'][:] = B0
+    var0['C'][:] = C0
+    var0['D'][:] = D0
+    var0['Ln'][:] = guess['L'] @ sRp0
+    var0['x'][:] = x0
+    var0['en'][:] = en0
+    var0['sRp_tril'][:] = sRp0[np.tril_indices(ny)]
+    var0['sW_diag'][:] = np.diag(sW0)
+    var0['ctrl_orth'][:] = ctrl_orth0
+    var0['obs_orth'][:] = obs_orth0
+    
+    # Define bounds for decision variables
+    dec_bounds = np.repeat([[-np.inf], [np.inf]], problem.ndec, axis=-1)
+    dec_L, dec_U = dec_bounds
+    var_L = problem.variables(dec_L)
+    var_U = problem.variables(dec_U)
+    var_L['sRp_tril'][symfem.tril_diag(ny)] = 1e-6
+    var_L['sW_diag'][:] = 0
+    var_L['ybias'][:] = 0
+    var_U['ybias'][:] = 0
+    
+    # Define bounds for constraints
+    constr_bounds = np.zeros((2, problem.ncons))
+    constr_L, constr_U = constr_bounds
+    var_constr_L = problem.unpack_constraints(constr_L)
+    var_constr_U = problem.unpack_constraints(constr_U)
+    
+    # Define problem scaling
+    obj_scale = -1.0
+    constr_scale = np.ones(problem.ncons)
+    var_constr_scale = problem.unpack_constraints(constr_scale)
+    var_constr_scale['innovation'][:] = 1
+    
+    dec_scale = np.ones(problem.ndec)
+    var_scale = problem.variables(dec_scale)
+    var_scale['sRp_tril'][:] = 1e2
+    var_scale['Ln'][:] = 1e2
+    
+    with problem.ipopt(dec_bounds, constr_bounds) as nlp:
+        nlp.add_str_option('linear_solver', 'ma57')
+        nlp.add_num_option('ma57_pre_alloc', 25.0)
+        nlp.add_num_option('tol', 1e-6)
+        nlp.add_int_option('max_iter', 1000)
+        nlp.set_scaling(obj_scale, dec_scale, constr_scale)
+        decopt, info = nlp.solve(dec0)
+    
+    opt = problem.variables(decopt)
+    return opt
+    
 
 def get_model(config):
     nx = config['nx']
@@ -104,6 +193,13 @@ def cmdline_args():
     return parser.parse_args()
 
 
+def fit(e, y):
+    from numpy.linalg import norm
+    ymean = np.mean(y, axis=0)
+    nrmse = norm(e, axis=0) / norm(yv - ymean, axis=0)
+    return 1 - nrmse
+
+
 if __name__ == '__main__':
     args = cmdline_args()
     edir = pathlib.Path(args.edir)
@@ -113,8 +209,7 @@ if __name__ == '__main__':
     datafiles = sorted(edir.glob('exp*.mat'))
     
     for datafile in datafiles:
-        uv, yv, ue, ye = load_data(datafile)
-        in_prob = fem.InnovationDTProblem(model, ye, ue)
-        ml_prob = MLProblem(model, ye, ue)
+        optbal = estimate(model, datafile, prob_type='bal')
+        #optml = estimate(model, datafile, prob_type='ml')
         
         raise SystemExit

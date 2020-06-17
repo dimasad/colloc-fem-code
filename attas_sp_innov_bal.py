@@ -96,7 +96,6 @@ if __name__ == '__main__':
     en0 = np.linalg.solve(sRp0, (y - x0).T).T
 
     # Define initial guess for decision variables
-    # Define initial guess for decision variables
     dec0 = np.zeros(problem.ndec)
     var0 = problem.variables(dec0)
     var0['A'][:] = A0
@@ -146,7 +145,7 @@ if __name__ == '__main__':
         nlp.set_scaling(obj_scale, dec_scale, constr_scale)
         decopt, info = nlp.solve(dec0)
     
-    opt = problem.variables(decopt)    
+    opt = problem.variables(decopt)
     xopt = opt['x']
     A = opt['A']
     B = opt['B']
