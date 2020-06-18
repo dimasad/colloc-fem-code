@@ -16,7 +16,7 @@ for data_file = data_files'
     de = d(end/2+1:end);
     
     %% Estimate
-    s1opt = n4sidOptions();
+    s1opt = n4sidOptions('EnforceStability', true);
     s1 = n4sid(de, nx, 'Feedthrough', true, s1opt);
     s2opt = ssestOptions('InitialState', 'estimate');
     s2 = ssest(de, nx, 'Feedthrough', true, 'Ts', de.Ts, s2opt);

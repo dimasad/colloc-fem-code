@@ -101,6 +101,8 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     W0 = np.diag(guess['gram'].ravel())
     sW0 = np.sqrt(W0)
 
+    assert np.all(np.isfinite(W0))
+
     ctrl_bmat = np.c_[A0 @ sW0, B0]
     q, r = np.linalg.qr(ctrl_bmat.T)
     ctrl_orth0 = (q * np.diag(np.sign(r))).T
@@ -128,10 +130,10 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     var0['ctrl_orth'][:] = ctrl_orth0
     var0['obs_orth'][:] = obs_orth0
     if prob_type == 'ml':
-        var0['sQ_tril'][symfem.tril_diag(nx)] = 1
-        var0['sR_tril'][symfem.tril_diag(ny)] = 1
-        var0['sPp_tril'][symfem.tril_diag(nx)] = 1
-        var0['sPc_tril'][symfem.tril_diag(nx)] = 1
+        var0['sQ_tril'][symfem.tril_diag(nx)] = 0.1
+        var0['sR_tril'][symfem.tril_diag(ny)] = 0.1
+        var0['sPp_tril'][symfem.tril_diag(nx)] = 0.1
+        var0['sPc_tril'][symfem.tril_diag(nx)] = 0.1
         var0['pred_orth'][:] = np.eye(nx, 2*nx)
         var0['corr_orth'][:] = np.eye(nx + ny)
     
@@ -140,14 +142,14 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     dec_L, dec_U = dec_bounds
     var_L = problem.variables(dec_L)
     var_U = problem.variables(dec_U)
-    var_L['sRp_tril'][symfem.tril_diag(ny)] = 0
+    var_L['sRp_tril'][symfem.tril_diag(ny)] = 1e-5
     var_L['sW_diag'][:] = 0
     var_L['ybias'][:] = 0
     var_U['ybias'][:] = 0
     if prob_type == 'ml':
         var_L['sPp_tril'][symfem.tril_diag(nx)] = 0
         var_L['sPc_tril'][symfem.tril_diag(nx)] = 0
-        var_L['sQ_tril'][symfem.tril_diag(nx)] = 0
+        var_L['sQ_tril'][symfem.tril_diag(nx)] = 1e-5
         var_L['sR_tril'][symfem.tril_diag(ny)] = 0
     
     # Define bounds for constraints
@@ -233,7 +235,7 @@ if __name__ == '__main__':
     msefile = edir / 'val_mse.txt'
     open(msefile, 'w').close()
 
-    for datafile in datafiles:
+    for datafile in datafiles[2:]:
         i = int(datafile.stem[3:])
         print('*' * 80)
         print('Experiment #', i, sep='')
@@ -241,15 +243,14 @@ if __name__ == '__main__':
         
         uv, yv, ue, ye = load_data(datafile)
         matlab_est = load_matlab_estimates(datafile)
+        
         optbal = estimate(model, datafile, 'bal', matlab_est)
         optml = estimate(model, datafile, 'ml', matlab_est)
-        
         savekeys = {'A', 'B', 'C', 'D', 'Ln', 'sRp_tril'}
-        savedata = {
-            'bal': {k:v for k,v in optbal.items() if k in savekeys},
-            'ml': {k:v for k,v in optml.items() if k in savekeys}
-        }
-        np.savez(edir / ('fem_' + datafile.stem), **savedata)
+        balsave = {k:v for k,v in optbal.items() if k in savekeys}
+        mlsave = {k:v for k,v in optml.items() if k in savekeys}
+        np.savez(edir / ('bal_' + datafile.stem), **balsave)
+        np.savez(edir / ('ml_' + datafile.stem), **mlsave)
         
         xbal, ebal = predict(optbal, yv, uv)
         xml, eml = predict(optml, yv, uv)
@@ -259,3 +260,5 @@ if __name__ == '__main__':
         mse = [np.mean(e**2) for e in (yv, ebal, eml, *esys)]
         with open(msefile, 'a') as f:
             print(i, *mse, sep=', ', file=f)
+        
+        

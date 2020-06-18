@@ -3,8 +3,8 @@
 rng_settings = rng(0);
 
 nx = 5;
-nu = 2;
-ny = 2;
+nu = 3;
+ny = 3;
 nw = nx;
 
 N = 1000;
@@ -43,8 +43,12 @@ for i=1:nexp
     %% Create system
     rng_settings = rng;
     
+    % Sample a stable system
     sys = drss(nx, ny, nu + nw);
-    sys.d(:, nu+1:end) = 0;
+    while any(abs(pole(sys)) >= 0.999999)
+        sys = drss(nx, ny, nu + nw);
+    end
+    sys.d(:, nu+1:end) = 0; % No correlation between meas and proc noise
     
     u = std_u * randn(N, nu);
     w = std_w * randn(N, nw);
