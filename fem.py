@@ -6,7 +6,7 @@ import numpy as np
 from ceacoest import optim
 
 
-class InnovationDTProblem(optim.Problem):
+class UnnormalizedInnovationDTProblem(optim.Problem):
 
     def __init__(self, model, y, u):
         super().__init__()
@@ -21,7 +21,7 @@ class InnovationDTProblem(optim.Problem):
         """Inputs."""
 
         self.uprev = self.u[:-1]
-        """Previous inputs."""        
+        """Previous inputs."""
         
         N = len(y)
         self.N = N
@@ -61,6 +61,68 @@ class InnovationDTProblem(optim.Problem):
         return {'y': self.y, 'u': self.u, 'uprev': self.uprev,
                 **super().variables(dvec)}
 
+
+class NormalizedInnovationDTProblem(optim.Problem):
+
+    def __init__(self, model, y, u):
+        super().__init__()
+
+        self.model = model
+        """Underlying model."""
+        
+        self.y = np.asarray(y)
+        """Measurements."""
+        
+        self.u = np.asarray(u)
+        """Inputs."""
+
+        self.uprev = self.u[:-1]
+        """Previous inputs."""
+        
+        N = len(y)
+        self.N = N
+        """Number of measurement instants."""
+        
+        assert y.ndim == 2
+        assert y.shape[1] == model.ny
+        assert u.shape == (N, model.nu)
+        assert N > 1
+        
+        # Register decision variables
+        self.add_decision('ybias', model.ny)
+        self.add_decision('sRp_tril', model.nty)
+        self.add_decision('isRp_tril', model.nty)
+        self.add_decision('A', (model.nx, model.nx))
+        self.add_decision('B', (model.nx, model.nu))
+        self.add_decision('C', (model.ny, model.nx))
+        self.add_decision('D', (model.ny, model.nu))
+        self.add_decision('Ln', (model.nx, model.ny))
+        self.add_decision('yp', (N, model.ny))
+        x = self.add_decision('x', (N, model.nx))
+        en = self.add_decision('en', (N, model.ny))
+        
+        # Define and register dependent variables
+        xprev = optim.Decision((N-1, model.nx), x.offset)
+        enprev = optim.Decision((N-1, model.ny), en.offset)
+        xnext = optim.Decision((N-1, model.nx), x.offset + model.nx)
+        self.add_dependent_variable('xprev', xprev)
+        self.add_dependent_variable('enprev', enprev)
+        self.add_dependent_variable('xnext', xnext)
+    
+        # Register problem functions
+        self.add_objective(model.loglikelihood, N)
+        self.add_constraint(model.dynamics, (N - 1, model.nx))
+        self.add_constraint(model.output, (N, model.ny))
+        self.add_constraint(model.innovation, (N, model.ny))
+        self.add_constraint(model.sRp_inv, model.nty)
+    
+    def variables(self, dvec):
+        """Get all variables needed to evaluate problem functions."""
+        return {'y': self.y, 'u': self.u, 'uprev': self.uprev,
+                **super().variables(dvec)}
+
+
+InnovationDTProblem = NormalizedInnovationDTProblem
 
 
 class BalancedDTProblem(InnovationDTProblem):
@@ -147,3 +209,4 @@ class DiscretizedNoiseProblem(MaximumLikelihoodDTProblem):
     def variables(self, dvec):
         """Get all variables needed to evaluate problem functions."""
         return {'dt': self.model.dt, **super().variables(dvec)}
+

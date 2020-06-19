@@ -8,7 +8,7 @@ import sympy
 from ceacoest.modelling import symoptim
 
 
-class InnovationDTModel(symoptim.Model):
+class UnnormalizedInnovationDTModel(symoptim.Model):
     def __init__(self, nx, nu, ny):
         super().__init__()
 
@@ -32,7 +32,7 @@ class InnovationDTModel(symoptim.Model):
         v['A'] = [[f'A{i}_{j}' for j in range(nx)] for i in range(nx)]
         v['B'] = [[f'B{i}_{j}' for j in range(nu)] for i in range(nx)]
         v['C'] = [[f'C{i}_{j}' for j in range(nx)] for i in range(ny)]
-        v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]        
+        v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]
         v['Ln'] = [[f'Ln{i}_{j}' for j in range(ny)] for i in range(nx)]
         v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
         self.decision.update({k for k in v if k != 'self'})
@@ -71,6 +71,87 @@ class InnovationDTModel(symoptim.Model):
                **getattr(super(), 'generate_assignments', {})}
         return gen
 
+
+class NormalizedInnovationDTModel(symoptim.Model):
+    def __init__(self, nx, nu, ny):
+        super().__init__()
+        
+        self.nx = nx
+        """Number of states."""
+        
+        self.nu = nu
+        """Number of inputs."""
+        
+        self.ny = ny
+        """Number of outputs."""
+        
+        # Define decision variables
+        v = self.variables
+        v['x'] = [f'x{i}' for i in range(nx)]
+        v['yp'] = [f'yp{i}' for i in range(ny)]
+        v['en'] = [f'en{i}' for i in range(ny)]
+        v['xnext'] = [f'xnext{i}' for i in range(nx)]
+        v['xprev'] = [f'xprev{i}' for i in range(nx)]
+        v['enprev'] = [f'enprev{i}' for i in range(ny)]
+        v['ybias'] = [f'ybias{i}' for i in range(ny)]
+        v['A'] = [[f'A{i}_{j}' for j in range(nx)] for i in range(nx)]
+        v['B'] = [[f'B{i}_{j}' for j in range(nu)] for i in range(nx)]
+        v['C'] = [[f'C{i}_{j}' for j in range(nx)] for i in range(ny)]
+        v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]
+        v['Ln'] = [[f'Ln{i}_{j}' for j in range(ny)] for i in range(nx)]
+        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
+        v['isRp_tril'] = [f'isRp{i}_{j}' for i,j in tril_ind(ny)]
+        self.decision.update({k for k in v if k != 'self'})
+        
+        # Define auxiliary variables
+        v['u'] = [f'u{i}' for i in range(nu)]
+        v['y'] = [f'y{i}' for i in range(ny)]
+        v['uprev'] = [f'uprev{i}' for i in range(nu)]
+        
+        # Register optimization functions
+        self.add_constraint('dynamics')
+        self.add_constraint('output')
+        self.add_constraint('innovation')
+        self.add_constraint('sRp_inv')
+        self.add_objective('loglikelihood')
+    
+    def dynamics(self, xnext, xprev, uprev, enprev, A, B, Ln):
+        """Model dynamics defects."""
+        xpred = A @ xprev + B @ uprev + Ln @ enprev
+        return xnext - xpred
+
+    def output(self, yp, x, u, C, D, ybias):
+        """Predicted output constraint."""
+        return C @ x + D @ u + ybias - yp
+    
+    def innovation(self, y, yp, en, isRp_tril):
+        """Model normalized innovation constraint."""
+        isRp = tril_mat(isRp_tril)
+        return isRp @ (y - yp) - en
+        
+    def sRp_inv(self, sRp_tril, isRp_tril):
+        """Model normalized innovation constraint."""
+        sRp = tril_mat(sRp_tril)
+        isRp = tril_mat(isRp_tril)
+        I = np.eye(self.ny)
+        resid = sRp @ isRp - I
+        return [resid[i] for i in tril_ind(self.ny)]
+    
+    def loglikelihood(self, en, isRp_tril):
+        """Log-likelihood function."""
+        isRp = tril_mat(isRp_tril)
+        log_det_isRp = sum(sympy.log(d) for d in isRp.diagonal())
+        return -0.5 * (en ** 2).sum() + log_det_isRp
+    
+    @property
+    def generate_assignments(self):
+        gen = {'nx': self.nx, 'nu': self.nu, 'ny': self.ny, 
+               'nty': len(self.variables['sRp_tril']),
+               **getattr(super(), 'generate_assignments', {})}
+        return gen
+
+
+InnovationDTModel = NormalizedInnovationDTModel
 
 class BalancedDTModel(InnovationDTModel):
     def __init__(self, nx, nu, ny):
@@ -287,3 +368,82 @@ def expm_taylor(a, order):
         term = 1 / i * term @ a
         expm = expm + term
     return expm
+
+
+class NormInnovationModel(symoptim.Model):
+    def __init__(self, nx, nu, ny):
+        super().__init__()
+        
+        self.nx = nx
+        """Number of states."""
+        
+        self.nu = nu
+        """Number of inputs."""
+        
+        self.ny = ny
+        """Number of outputs."""
+        
+        # Define decision variables
+        v = self.variables
+        v['x'] = [f'x{i}' for i in range(nx)]
+        v['yp'] = [f'yp{i}' for i in range(ny)]
+        v['en'] = [f'en{i}' for i in range(ny)]
+        v['xnext'] = [f'xnext{i}' for i in range(nx)]
+        v['xprev'] = [f'xprev{i}' for i in range(nx)]
+        v['enprev'] = [f'enprev{i}' for i in range(ny)]
+        v['ybias'] = [f'ybias{i}' for i in range(ny)]
+        v['A'] = [[f'A{i}_{j}' for j in range(nx)] for i in range(nx)]
+        v['B'] = [[f'B{i}_{j}' for j in range(nu)] for i in range(nx)]
+        v['C'] = [[f'C{i}_{j}' for j in range(nx)] for i in range(ny)]
+        v['D'] = [[f'D{i}_{j}' for j in range(nu)] for i in range(ny)]
+        v['Ln'] = [[f'Ln{i}_{j}' for j in range(ny)] for i in range(nx)]
+        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
+        v['isRp_tril'] = [f'isRp{i}_{j}' for i,j in tril_ind(ny)]
+        self.decision.update({k for k in v if k != 'self'})
+        
+        # Define auxiliary variables
+        v['u'] = [f'u{i}' for i in range(nu)]
+        v['y'] = [f'y{i}' for i in range(ny)]
+        v['uprev'] = [f'uprev{i}' for i in range(nu)]
+        
+        # Register optimization functions
+        self.add_constraint('dynamics')
+        self.add_constraint('output')
+        self.add_constraint('innovation')
+        self.add_constraint('sRp_inv')
+        self.add_objective('loglikelihood')
+    
+    def dynamics(self, xnext, xprev, uprev, enprev, A, B, Ln):
+        """Model dynamics defects."""
+        xpred = A @ xprev + B @ uprev + Ln @ enprev
+        return xnext - xpred
+
+    def output(self, yp, x, u, C, D, ybias):
+        """Predicted output constraint."""
+        return C @ x + D @ u + ybias - yp
+    
+    def innovation(self, y, yp, en, isRp_tril):
+        """Model normalized innovation constraint."""
+        isRp = tril_mat(isRp_tril)
+        return isRp @ (y - yp) - en
+        
+    def sRp_inv(self, sRp_tril, isRp_tril):
+        """Model normalized innovation constraint."""
+        sRp = tril_mat(sRp_tril)
+        isRp = tril_mat(isRp_tril)
+        I = np.eye(self.ny)
+        resid = sRp @ isRp - I
+        return [resid[i] for i in tril_ind(self.ny)]
+    
+    def loglikelihood(self, en, isRp_tril):
+        """Log-likelihood function."""
+        isRp = tril_mat(isRp_tril)
+        log_det_isRp = sum(sympy.log(d) for d in isRp.diagonal())
+        return -0.5 * (en ** 2).sum() + log_det_isRp
+    
+    @property
+    def generate_assignments(self):
+        gen = {'nx': self.nx, 'nu': self.nu, 'ny': self.ny, 
+               'nty': len(self.variables['sRp_tril']),
+               **getattr(super(), 'generate_assignments', {})}
+        return gen

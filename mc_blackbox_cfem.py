@@ -23,7 +23,7 @@ for m in (fem, symfem):
 
 
 class Model(symfem.MaximumLikelihoodDTModel, symfem.BalancedDTModel):
-    generated_name = 'GeneratedBalancedMaximumLikelihoodModel'
+    generated_name = 'GeneratedNormBalancedMaximumLikelihoodModel'
 
 
 class MLProblem(fem.MaximumLikelihoodDTProblem, fem.BalancedDTProblem):
@@ -70,13 +70,15 @@ def predict(mdl, y, u):
         x0 = np.zeros(nx)
     
     x = np.tile(x0, (N, 1))
+    yp = np.empty_like(y)
     e = np.empty_like(y)
     
     for k in range(N):
-        e[k] = y[k] - C @ x[k] - D @ u[k]
+        yp[k] = C @ x[k] + D @ u[k]
+        e[k] = y[k] - yp[k]
         if k+1 < N:
             x[k+1] = A @ x[k] + B @ u[k] + L @ e[k]
-    return x, e
+    return x, e, yp
 
 
 def estimate(model, datafile, prob_type='bal', matlab_est=None):
@@ -94,14 +96,14 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     B0 = guess['B']
     C0 = guess['C']
     D0 = guess['D']
-    x0, e0 = predict(guess, ye, ue)
+    x0, e0, yp0 = predict(guess, ye, ue)
     Rp0 = 1/len(e0) * e0.T @ e0
     sRp0 = np.linalg.cholesky(Rp0)
-    en0 = np.linalg.solve(sRp0, e0.T).T
+    isRp0 = np.linalg.inv(sRp0)
+    en0 = e0 @ isRp0.T
     W0 = np.diag(guess['gram'].ravel())
     sW0 = np.sqrt(W0)
     Ln0 = guess['L'] @ sRp0
-
     
     assert np.all(np.isfinite(W0))
     
@@ -132,8 +134,9 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
         sRp0 = (r.T * s)[:ny, :ny]
         Kn0 = (r.T * s)[ny:, :ny]
         sPc0 = (r.T * s)[ny:, ny:]
+        isRp0 = np.linalg.inv(sRp0)
         Ln0 = A0 @ Kn0
-        L0 = Ln0 @ np.linalg.inv(sRp0)
+        L0 = Ln0 @ isRp0
         
         pred_mat = np.block([[A0 @ sPc0, sQ0]])
         q,r = np.linalg.qr(pred_mat.T)
@@ -141,7 +144,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
         pred_orth0 = (q*s).T
         
         mdl0 = dict(A=A0, B=B0, C=C0, D=D0, L=L0, x0=x0[0])
-        x0, e0 = predict(mdl0, ye, ue)
+        x0, e0, yp0 = predict(mdl0, ye, ue)
         en0 = np.linalg.solve(sRp0, e0.T).T
     
     # Define initial guess for decision variables
@@ -153,8 +156,10 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     var0['D'][:] = D0
     var0['Ln'][:] = Ln0
     var0['x'][:] = x0
+    var0['yp'][:] = yp0
     var0['en'][:] = en0
     var0['sRp_tril'][:] = sRp0[np.tril_indices(ny)]
+    var0['isRp_tril'][:] = isRp0[np.tril_indices(ny)]
     var0['sW_diag'][:] = np.diag(sW0)
     var0['ctrl_orth'][:] = ctrl_orth0
     var0['obs_orth'][:] = obs_orth0
@@ -288,8 +293,8 @@ if __name__ == '__main__':
         np.savez(edir / ('bal_' + datafile.stem), **balsave)
         np.savez(edir / ('ml_' + datafile.stem), **mlsave)
         
-        xbal, ebal = predict(optbal, yv, uv)
-        xml, eml = predict(optml, yv, uv)
+        xbal, ebal, ypbal = predict(optbal, yv, uv)
+        xml, eml, ypml = predict(optml, yv, uv)
         esys = [predict(mdl, yv, uv)[1] for mdl in matlab_est['sys'].flat]
         
         yvdev = yv - np.mean(yv, 0)
