@@ -85,6 +85,26 @@ class BalancedDTProblem(InnovationDTProblem):
         self.add_constraint(model.obs_orthogonality, ntx)
 
 
+class StableDTProblem(InnovationDTProblem):
+    def __init__(self, model, y, u):
+        super().__init__(model, y, u)
+        
+        nx = model.nx
+        nu = model.nu
+        ny = model.ny
+        ntx = nx * (nx + 1) // 2
+        
+        # Register decision variables
+        self.add_decision('Apred', (nx, nx))
+        self.add_decision('sM_tril', ntx)
+        self.add_decision('stab_orth', (nx, 2*nx))
+        
+        # Register constraint functions
+        self.add_constraint(model.predictor_stability, (nx, 2*nx))
+        self.add_constraint(model.predictor_A, (nx, nx))
+        self.add_constraint(model.stab_orthogonality, ntx)
+
+
 class MaximumLikelihoodDTProblem(InnovationDTProblem):
 
     def __init__(self, model, y, u):

@@ -22,11 +22,17 @@ for m in (fem, symfem):
     importlib.reload(m)
 
 
-class Model(symfem.MaximumLikelihoodDTModel, symfem.BalancedDTModel):
-    generated_name = 'GeneratedNormBalancedMaximumLikelihoodModel'
+class Model(symfem.MaximumLikelihoodDTModel, 
+            symfem.StableDTModel,
+            symfem.BalancedDTModel):
+    generated_name = 'GeneratedMonteCarloBlackboxModel'
 
 
 class MLProblem(fem.MaximumLikelihoodDTProblem, fem.BalancedDTProblem):
+    pass
+
+
+class BalProblem(fem.StableDTProblem, fem.BalancedDTProblem):
     pass
 
 
@@ -58,9 +64,9 @@ def predict(mdl, y, u):
     try:
         L = mdl['L']
     except (KeyError, ValueError):
-        sRp = symfem.tril_mat(mdl['sRp_tril'])
+        isRp = symfem.tril_mat(mdl['isRp_tril'])
         Ln = mdl['Ln']
-        L = Ln @ np.linalg.inv(sRp)
+        L = Ln @ isRp
     
     nx = len(A)
     N = len(y)
@@ -86,7 +92,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     if prob_type == 'ml':
         problem = MLProblem(model, ye, ue)
     elif prob_type == 'bal':
-        problem = fem.BalancedDTProblem(model, ye, ue)
+        problem = BalProblem(model, ye, ue)
     else:
         raise ValueError('Unknown prob_type')
     
@@ -119,7 +125,15 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     nu = model.nu
     ny = model.ny
     
-    if prob_type == 'ml':
+    if prob_type == 'bal':
+        Apred0 = A0 - Ln0 @ isRp0 @ C0
+        M0 = scipy.linalg.solve_discrete_lyapunov(A0, np.eye(nx))
+        sM0 = np.linalg.cholesky(M0)
+        stab_mat = np.c_[Apred0 @ sM0, np.eye(nx)]
+        q,r = np.linalg.qr(stab_mat.T)
+        s = np.sign(np.diag(r))
+        stab_orth0 = (q * s).T
+    elif prob_type == 'ml':
         sQ0 = np.eye(nx) * 1e-2
         Q0 = sQ0 ** 2
         sR0 = sRp0
@@ -158,12 +172,15 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     var0['x'][:] = x0
     var0['yp'][:] = yp0
     var0['en'][:] = en0
-    var0['sRp_tril'][:] = sRp0[np.tril_indices(ny)]
     var0['isRp_tril'][:] = isRp0[np.tril_indices(ny)]
     var0['sW_diag'][:] = np.diag(sW0)
     var0['ctrl_orth'][:] = ctrl_orth0
     var0['obs_orth'][:] = obs_orth0
-    if prob_type == 'ml':
+    if prob_type == 'bal':
+        var0['Apred'][:] = Apred0
+        var0['sM_tril'][:] = sM0[np.tril_indices(nx)]
+        var0['stab_orth'][:] = stab_orth0
+    elif prob_type == 'ml':
         var0['sQ_tril'][:] = sQ0[np.tril_indices(nx)]
         var0['sR_tril'][:] = sR0[np.tril_indices(ny)]
         var0['sPp_tril'][:] = sPp0[np.tril_indices(nx)]
@@ -181,7 +198,9 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     var_L['sW_diag'][:] = 0
     var_L['ybias'][:] = 0
     var_U['ybias'][:] = 0
-    if prob_type == 'ml':
+    if prob_type == 'bal':
+        var_L['sM_tril'][symfem.tril_diag(nx)] = 0
+    elif prob_type == 'ml':
         var_L['sPp_tril'][symfem.tril_diag(nx)] = 0
         var_L['sPc_tril'][symfem.tril_diag(nx)] = 0
         var_L['sQ_tril'][symfem.tril_diag(nx)] = 1e-5
@@ -281,9 +300,8 @@ if __name__ == '__main__':
         uv, yv, ue, ye = load_data(datafile)
         matlab_est = load_matlab_estimates(datafile)
         
-        #optbal = estimate(model, datafile, 'bal', matlab_est)
+        optbal = estimate(model, datafile, 'bal', matlab_est)
         optml = estimate(model, datafile, 'ml', matlab_est)
-        optbal = optml
         
         savekeys = {
             'A', 'B', 'C', 'D', 'Ln', 'sW_diag',
@@ -304,6 +322,6 @@ if __name__ == '__main__':
         with open(msefile, 'a') as f:
             print(i, *mse, sep=', ', file=f)
         
-        raise SystemExit
+        #raise SystemExit
        
  

@@ -77,6 +77,38 @@ class InnovationDTModel(symoptim.Model):
         return gen
 
 
+class StableDTModel(InnovationDTModel):
+    def __init__(self, nx, nu, ny):
+        super().__init__(nx, nu, ny)
+        
+        # Define additional decision variables
+        v = self.variables
+        v['Apred'] = [[f'Apred{i}_{j}' for j in range(nx)] for i in range(nx)]
+        v['sM_tril'] = [f'sM{i}_{j}' for i,j in tril_ind(nx)]
+        so = [[f'stab_orth{i}_{j}' for j in range(2*nx)] for i in range(nx)]
+        v['stab_orth'] = so
+        self.decision.update({'Apred', 'sM_tril', 'stab_orth'})
+
+        # Register additional constraints
+        self.add_constraint('predictor_stability')
+        self.add_constraint('predictor_A')
+        self.add_constraint('stab_orthogonality')
+    
+    def predictor_stability(self, sM_tril, Apred, stab_orth):
+        sM = tril_mat(sM_tril)
+        I = np.eye(self.nx)
+        bmat = np.block([Apred @ sM, I])
+        return sM @ stab_orth - bmat
+    
+    def stab_orthogonality(self, stab_orth):
+        resid = 0.5 * (stab_orth @ stab_orth.T - np.eye(self.nx))
+        return [resid[i] for i in tril_ind(self.nx)]
+    
+    def predictor_A(self, A, Ln, isRp_tril, C, Apred):
+        isRp = tril_mat(isRp_tril)
+        return A - Ln @ isRp @ C - Apred
+
+
 class BalancedDTModel(InnovationDTModel):
     def __init__(self, nx, nu, ny):
         super().__init__(nx, nu, ny)
