@@ -177,7 +177,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     dec_L, dec_U = dec_bounds
     var_L = problem.variables(dec_L)
     var_U = problem.variables(dec_U)
-    var_L['sRp_tril'][symfem.tril_diag(ny)] = 1e-7
+    var_L['isRp_tril'][symfem.tril_diag(ny)] = 1e-6
     var_L['sW_diag'][:] = 0
     var_L['ybias'][:] = 0
     var_U['ybias'][:] = 0
@@ -185,7 +185,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
         var_L['sPp_tril'][symfem.tril_diag(nx)] = 0
         var_L['sPc_tril'][symfem.tril_diag(nx)] = 0
         var_L['sQ_tril'][symfem.tril_diag(nx)] = 1e-5
-        var_L['sR_tril'][symfem.tril_diag(ny)] = 0
+        var_L['sR_tril'][symfem.tril_diag(ny)] = 1e-6
     
     # Define bounds for constraints
     constr_bounds = np.zeros((2, problem.ncons))
@@ -197,7 +197,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     obj_scale = -1.0
     constr_scale = np.ones(problem.ncons)
     var_constr_scale = problem.unpack_constraints(constr_scale)
-    var_constr_scale['innovation'][:] = 1e2
+    var_constr_scale['innovation'][:] = 1
     if prob_type == 'ml':
         var_constr_scale['pred_cov'][:] = 10
         var_constr_scale['corr_cov'][:] = 10
@@ -205,9 +205,10 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
-    var_scale['sRp_tril'][:] = 1e1
+    var_scale['isRp_tril'][:] = 1e-1
     var_scale['Ln'][:] = 1e1
     if prob_type == 'ml':
+        var_scale['sRp_tril'][:] = 1e1
         var_scale['sPp_tril'][:] = 1e1
         var_scale['sPc_tril'][:] = 1e1
         var_scale['sQ_tril'][:] = 1e1
@@ -280,8 +281,9 @@ if __name__ == '__main__':
         uv, yv, ue, ye = load_data(datafile)
         matlab_est = load_matlab_estimates(datafile)
         
-        optbal = estimate(model, datafile, 'bal', matlab_est)
+        #optbal = estimate(model, datafile, 'bal', matlab_est)
         optml = estimate(model, datafile, 'ml', matlab_est)
+        optbal = optml
         
         savekeys = {
             'A', 'B', 'C', 'D', 'Ln', 'sW_diag',
@@ -302,6 +304,6 @@ if __name__ == '__main__':
         with open(msefile, 'a') as f:
             print(i, *mse, sep=', ', file=f)
         
-        #raise SystemExit
+        raise SystemExit
        
  
