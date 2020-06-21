@@ -127,7 +127,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     
     if prob_type == 'bal':
         Apred0 = A0 - Ln0 @ isRp0 @ C0
-        M0 = scipy.linalg.solve_discrete_lyapunov(A0, np.eye(nx))
+        M0 = scipy.linalg.solve_discrete_lyapunov(Apred0, np.eye(nx))
         sM0 = np.linalg.cholesky(M0)
         stab_mat = np.c_[Apred0 @ sM0, np.eye(nx)]
         q,r = np.linalg.qr(stab_mat.T)
@@ -183,6 +183,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     elif prob_type == 'ml':
         var0['sQ_tril'][:] = sQ0[np.tril_indices(nx)]
         var0['sR_tril'][:] = sR0[np.tril_indices(ny)]
+        var0['sRp_tril'][:] = sRp0[np.tril_indices(ny)]
         var0['sPp_tril'][:] = sPp0[np.tril_indices(nx)]
         var0['sPc_tril'][:] = sPc0[np.tril_indices(nx)]
         var0['pred_orth'][:] = pred_orth0
