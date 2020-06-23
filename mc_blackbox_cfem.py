@@ -320,5 +320,3 @@ if __name__ == '__main__':
         mse = [np.mean(e**2) for e in (yv, ebal, eml, *esys)]
         with open(msefile, 'a') as f:
             print(i, *mse, sep=', ', file=f)
-        
-        raise SystemExit
