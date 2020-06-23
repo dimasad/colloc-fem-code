@@ -16,11 +16,14 @@ for data_file = data_files'
     de = d(end/2+1:end);
     
     %% Estimate
-    s1opt = n4sidOptions('EnforceStability', true);
+    s1opt = n4sidOptions('EnforceStability', true, 'N4Weight', 'MOESP');
     s1 = n4sid(de, nx, 'Feedthrough', true, s1opt);
-    s2opt = ssestOptions('InitialState', 'estimate');
-    s2 = ssest(de, nx, 'Feedthrough', true, 'Ts', de.Ts, s2opt);
-        
+    
+    s2opt = ssestOptions('InitialState', 'estimate', 'SearchMethod', 'gn');
+    s2opt.SearchOptions.MaxIterations = 100;
+    s2opt.SearchOptions.Tolerance = 0;
+    s2 = ssest(de, s1, s2opt);
+    
     %% Get balanced realization
     [s1bal, gram, T] = balreal(s1);
     s1bal = idss(s1bal);

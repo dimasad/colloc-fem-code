@@ -3,17 +3,15 @@
 rng_settings = rng(0);
 
 nx = 5;
-nu = 3;
-ny = 3;
-nw = nx;
+nu = 2;
+ny = 2;
 
 N = 1000;
 
 std_u = 1;
-std_w = 0.05;
-std_v = 0.2;
+std_e = 0.2;
 
-nexp = 500;
+nexp = 250;
 
 %% Create data folder
 start = datetime('now');
@@ -28,10 +26,8 @@ config.N = N;
 config.nx = nx;
 config.nu = nu;
 config.ny = ny;
-config.nw = nw;
 config.std_u = std_u;
-config.std_w = std_w;
-config.std_v = std_v;
+config.std_e = std_e;
 config.rng_settings = rng_settings;
 config.nexp = nexp;
 save(config_file, '-struct', 'config')
@@ -44,26 +40,23 @@ for i=1:nexp
     rng_settings = rng;
     
     % Sample a stable system
-    sys = drss(nx, ny, nu + nw);
+    sys = drss(nx, ny, nu + ny);
     while any(abs(pole(sys)) >= 0.999999)
-        sys = drss(nx, ny, nu + nw);
+        sys = drss(nx, ny, nu + ny);
     end
-    sys.d(:, nu+1:end) = 0; % No correlation between meas and proc noise
+    sys.d(:, nu+1:end) = eye(ny);
     
     u = std_u * randn(N, nu);
-    w = std_w * randn(N, nw);
-    v = std_v * randn(N, ny);
+    e = std_e * randn(N, ny);
     
-    [yclean, ~, x] = lsim(sys, [u, w]);
-    y = yclean + v;
+    [y, ~, x] = lsim(sys, [u, e]);
     
     %% Save
     data = struct;
     data.rng_settings = rng_settings;
     
     data.u = u;
-    data.w = w;
-    data.v = v;
+    data.e = e;
     data.y = y;
     data.x = x;
     

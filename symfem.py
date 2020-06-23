@@ -149,68 +149,77 @@ class MaximumLikelihoodDTModel(InnovationDTModel):
     def __init__(self, nx, nu, ny):
         super().__init__(nx, nu, ny)
         
+        nxy = nx + ny
+
         # Define additional decision variables
         v = self.variables
-        v['Kn'] = [[f'Kn{i}_{j}' for j in range(ny)] for i in range(nx)]
-        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
+        v['S'] = [[f'S{i}_{j}' for j in range(ny)] for i in range(nx)]
         v['sQ_tril'] = [f'sQ{i}_{j}' for i,j in tril_ind(nx)]
         v['sR_tril'] = [f'sR{i}_{j}' for i,j in tril_ind(ny)]
+        v['sRp_tril'] = [f'sRp{i}_{j}' for i,j in tril_ind(ny)]
+        v['isR_tril'] = [f'isR{i}_{j}' for i,j in tril_ind(ny)]
+        v['sQd_tril'] = [f'sQd{i}_{j}' for i,j in tril_ind(nx)]
         v['sPp_tril'] = [f'sPp{i}_{j}' for i,j in tril_ind(nx)]
-        v['sPc_tril'] = [f'sPc{i}_{j}' for i,j in tril_ind(nx)]
-        po = [[f'pred_orth{i}_{j}' for j in range(2*nx)] for i in range(nx)]
-        co = [[f'corr_orth{i}_{j}' for j in range(nx+ny)] for i in range(nx+ny)]
+        po = [[f'pred_orth{i}_{j}' for j in range(nxy+nx)] for i in range(nxy)]
+        do = [[f'decorr_orth{i}_{j}' for j in range(nxy)] for i in range(nx)]
         v['pred_orth'] = po
-        v['corr_orth'] = co
-        self.decision.update({'sPp_tril', 'sPc_tril', 'sQ_tril'})
-        self.decision.update({'sRp_tril', 'sR_tril', 'Kn'})
-        self.decision.update({'pred_orth', 'corr_orth'})
+        v['decorr_orth'] = do
+        self.decision.update({'sPp_tril', 'sQd_tril', 'sQ_tril'})
+        self.decision.update({'sRp_tril', 'isR_tril', 'sR_tril', 'S'})
+        self.decision.update({'pred_orth', 'decorr_orth'})
         
         # Register additional constraints
+        self.add_constraint('decorr_orthogonality')
         self.add_constraint('pred_orthogonality')
-        self.add_constraint('corr_orthogonality')
+        self.add_constraint('decorr_cov')
         self.add_constraint('pred_cov')
-        self.add_constraint('corr_cov')
-        self.add_constraint('kalman_gain')
         self.add_constraint('sRp_inv')
+        self.add_constraint('sR_inv')
     
     def pred_orthogonality(self, pred_orth):
-        resid = 0.5 * (pred_orth @ pred_orth.T - np.eye(self.nx))
+        nxy = self.nx + self.ny
+        resid = 0.5 * (pred_orth @ pred_orth.T - np.eye(nxy))
+        return [resid[i] for i in tril_ind(nxy)]
+    
+    def decorr_orthogonality(self, decorr_orth):
+        resid = 0.5 * (decorr_orth @ decorr_orth.T - np.eye(self.nx))
         return [resid[i] for i in tril_ind(self.nx)]
     
-    def corr_orthogonality(self, corr_orth):
-        resid = 0.5 * (corr_orth @ corr_orth.T - np.eye(self.nx + self.ny))
-        return [resid[i] for i in tril_ind(self.nx + self.ny)]
-    
-    def pred_cov(self, A, sPp_tril, sPc_tril, sQ_tril, pred_orth):
-        sPp = tril_mat(sPp_tril)
-        sPc = tril_mat(sPc_tril)
-        sQ = tril_mat(sQ_tril)
-        bmat = np.block([[A @ sPc, sQ]])
-        return sPp @ pred_orth - bmat
-    
-    def corr_cov(self, C, sR_tril, sRp_tril, sPp_tril, sPc_tril, Kn, 
-                 corr_orth):
-        sPp = tril_mat(sPp_tril)
-        sPc = tril_mat(sPc_tril)
-        sRp = tril_mat(sRp_tril)
+    def pred_cov(self, A, C, sPp_tril, sR_tril, sRp_tril,
+                 sQd_tril, isR_tril, S, Ln, pred_orth):
         sR = tril_mat(sR_tril)
+        sPp = tril_mat(sPp_tril)
+        sRp = tril_mat(sRp_tril)
+        isR = tril_mat(isR_tril)
+        sQd = tril_mat(sQd_tril)
         
-        zeros = np.zeros((self.nx, self.ny))
-        M1 = np.block([[sRp,  zeros.T], 
-                       [Kn, sPc]])
-        M2 = np.block([[sR,    C @ sPp], 
-                       [zeros, sPp]])
-        return M1 @ corr_orth - M2
+        zeros = np.zeros((self.ny, self.nx))
+        M1 = np.block([[sRp,  zeros], 
+                       [Ln, sPp]])
+        M2 = np.block([[sR,        C @ sPp, zeros], 
+                       [S @ isR.T, A @ sPp, sQd]])
+        return M1 @ pred_orth - M2
     
-    def kalman_gain(self, Ln, Kn, A):
-        return Ln - A @ Kn
-        
+    def decorr_cov(self, sQ_tril, sQd_tril, S, isR_tril, decorr_orth):
+        sQ = tril_mat(sQ_tril)
+        sQd = tril_mat(sQd_tril)
+        isR = tril_mat(isR_tril)
+        return np.c_[sQd, S @ isR.T] - sQ @ decorr_orth 
+    
     def sRp_inv(self, sRp_tril, isRp_tril):
-        """Model normalized innovation constraint."""
+        """Inversion of sRp."""
         sRp = tril_mat(sRp_tril)
         isRp = tril_mat(isRp_tril)
         I = np.eye(self.ny)
         resid = sRp @ isRp - I
+        return [resid[i] for i in tril_ind(self.ny)]
+    
+    def sR_inv(self, sR_tril, isR_tril):
+        """Inversion of sR."""
+        sR = tril_mat(sR_tril)
+        isR = tril_mat(isR_tril)
+        I = np.eye(self.ny)
+        resid = sR @ isR - I
         return [resid[i] for i in tril_ind(self.ny)]
     
     @property

@@ -110,26 +110,33 @@ class MaximumLikelihoodDTProblem(InnovationDTProblem):
     def __init__(self, model, y, u):
         super().__init__(model, y, u)
         
-        nxy = model.nx + model.ny
+        nx = model.nx
+        nu = model.nu
+        ny = model.ny
+        nty = ny * (ny + 1) // 2
+        ntx = nx * (nx + 1) // 2
+        nxy = nx + ny
         ntxy = nxy * (nxy + 1) // 2
-        
+                
         # Register decision variables
-        self.add_decision('sPp_tril', model.ntx)
-        self.add_decision('sPc_tril', model.ntx)
-        self.add_decision('sQ_tril', model.ntx)
-        self.add_decision('sR_tril', model.nty)
-        self.add_decision('sRp_tril', model.nty)
-        self.add_decision('Kn', (model.nx, model.ny))
-        self.add_decision('pred_orth', (model.nx, 2*model.nx))
-        self.add_decision('corr_orth', (nxy, nxy))
+        self.add_decision('S', (nx, ny))
+        self.add_decision('sQ_tril', ntx)
+        self.add_decision('sR_tril', nty)
+        self.add_decision('sPp_tril', ntx)
+        self.add_decision('sRp_tril', nty)
+        self.add_decision('isR_tril', nty)
+        self.add_decision('sQd_tril', ntx)
+        self.add_decision('Kn', (nx, ny))
+        self.add_decision('pred_orth', (nxy, nxy + nx))
+        self.add_decision('decorr_orth', (nx, nxy))
         
         # Register constraint functions
-        self.add_constraint(model.pred_orthogonality, model.ntx)
-        self.add_constraint(model.corr_orthogonality, ntxy)
-        self.add_constraint(model.pred_cov, (model.nx, 2*model.nx))
-        self.add_constraint(model.corr_cov, (nxy, nxy))
-        self.add_constraint(model.kalman_gain, (model.nx, model.ny))
-        self.add_constraint(model.sRp_inv, model.nty)
+        self.add_constraint(model.decorr_orthogonality, ntx)
+        self.add_constraint(model.pred_orthogonality, ntxy)
+        self.add_constraint(model.decorr_cov, (nx, nxy))
+        self.add_constraint(model.pred_cov, (nxy, ny + 2*nx))
+        self.add_constraint(model.sRp_inv, nty)
+        self.add_constraint(model.sR_inv, nty)
 
 
 class ZOHDynamicsProblem(InnovationDTProblem):
