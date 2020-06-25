@@ -111,6 +111,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     sW0 = np.sqrt(W0)
     Ln0 = guess['L'] @ sRp0
     
+    e_scal = sRp0.diagonal()
     assert np.all(np.isfinite(W0))
     
     ctrl_bmat = np.c_[A0 @ sW0, B0]
@@ -120,7 +121,7 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     obs_bmat = np.c_[A0.T @ sW0, C0.T]
     q, r = np.linalg.qr(obs_bmat.T)
     obs_orth0 = (q * np.diag(np.sign(r))).T
-    
+
     nx = model.nx
     nu = model.nu
     ny = model.ny
@@ -134,10 +135,10 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
         s = np.sign(np.diag(r))
         stab_orth0 = (q * s).T
     elif prob_type == 'ml':
-        sQ0 = np.eye(nx) * 1e-2
+        sQ0 = np.eye(nx) * 0.5
         Q0 = sQ0 ** 2
-        sR0 = sRp0
-        isR0 = isRp0
+        sR0 = 0.5 * sRp0
+        isR0 = np.linalg.inv(sR0)
         R0 = sR0 @ sR0.T
         Pp0 = scipy.linalg.solve_discrete_are(A0.T, C0.T, Q0, R0)
         sPp0 = np.linalg.cholesky(Pp0)
@@ -220,21 +221,24 @@ def estimate(model, datafile, prob_type='bal', matlab_est=None):
     var_constr_scale['innovation'][:] = 1
     if prob_type == 'ml':
         var_constr_scale['pred_cov'][:] = 10
+        var_constr_scale['pred_cov'][:ny] = 1 / e_scal[:, None]
         var_constr_scale['decorr_cov'][:] = 10
     
     dec_scale = np.ones(problem.ndec)
     var_scale = problem.variables(dec_scale)
-    var_scale['isRp_tril'][:] = 1e-1
-    var_scale['Ln'][:] = 1e1
+    var_scale['isRp_tril'][:] = e_scal[np.tril_indices(ny)[1]]
+    var_scale['Ln'][:] = 1 / e_scal
     if prob_type == 'ml':
-        var_scale['sRp_tril'][:] = 1e1
+        var_scale['sRp_tril'][:] = 1 / e_scal[np.tril_indices(ny)[1]]
         var_scale['sPp_tril'][:] = 1e1
         var_scale['sQ_tril'][:] = 1e1
         var_scale['sQd_tril'][:] = 1e1
-        var_scale['sR_tril'][:] = 1e1
-        var_scale['isR_tril'][:] = 1e-1
+        var_scale['sR_tril'][:] = 1 / e_scal[np.tril_indices(ny)[1]]
+        var_scale['isR_tril'][:] = e_scal[np.tril_indices(ny)[1]]
     
     with problem.ipopt(dec_bounds, constr_bounds) as nlp:
+        nlp.add_str_option('linear_scaling_on_demand', 'no')
+        nlp.add_str_option('linear_system_scaling', 'mc19')
         nlp.add_str_option('linear_solver', 'ma57')
         nlp.add_num_option('ma57_pre_alloc', 25.0)
         nlp.add_num_option('tol', 1e-5)

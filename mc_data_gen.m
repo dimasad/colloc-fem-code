@@ -3,8 +3,8 @@
 rng_settings = rng(0);
 
 nx = 5;
-nu = 2;
-ny = 2;
+nu = 3;
+ny = 3;
 
 N = 1000;
 
